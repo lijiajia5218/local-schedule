@@ -1,0 +1,55 @@
+:root {
+  /* Surface & Canvas */
+  --bg-canvas: #f5f6f8;
+  --bg-surface: #ffffff;
+  --bg-surface-subtle: #fafbfc;
+  --bg-weekend: #f9fafb;
+  --bg-hover: #f2f4f8;
+  --bg-muted: #edf0f5;
+
+  /* Text Hierarchy */
+  --text-primary: #181c23;
+  --text-secondary: #525c6a;
+  --text-tertiary: #8c96a6;
+  --text-placeholder: #b4bcc8;
+
+  /* Brand & Semantic Colors */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff5ff;
+  --accent-ring: rgba(37, 99, 235, 0.2);
+  --accent-border: #bfdbfe;
+
+  --success: #16a34a;
+  --success-soft: #f0fdf4;
+  --warning: #c27803;
+  --warning-soft: #fffbeb;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --danger-border: #fecaca;
+
+  /* Borders */
+  --border-hairline: #e7eaf0;
+  --border-subtle: #eff1f5;
+  --border-strong: #cdd5e2;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Radii & Shadows */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.03), 0 0 1px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.14), 0 2px 8px rgba(15, 23, 42, 0.05);
+
+  /* Layout */
+  --topbar-height: 50px;
+}
