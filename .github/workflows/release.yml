@@ -57,4 +57,26 @@ jobs:
           releaseBody: '请查看更新内容；已安装桌面端的用户可在「设置 → 软件版本与更新」中一键更新。'
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
+
+  publish-updater-manifest:
+    needs: publish-tauri
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate and upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          node scripts/generate-latest-json.mjs --tag "$TAG" --out latest.json
+          gh release upload "$TAG" latest.json --clobber
