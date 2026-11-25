@@ -10,6 +10,7 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "tauri": "tauri",
+    "build:windows": "tauri build --target x86_64-pc-windows-msvc --bundles nsis -- --locked",
     "upgrade:mac": "bash scripts/upgrade-mac.sh"
   },
   "dependencies": {
