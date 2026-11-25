@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyQuickLine,
+  formatDailyMemoLine,
+  formatDailyTaskLine,
   formatWeeklyFocusLine,
+  isBlankOrBarePrefix,
   parseShorthandTask,
   parseTimePart,
   parseTimeRange,
@@ -164,5 +167,47 @@ describe('parseWeeklyFocusLine & formatWeeklyFocusLine', () => {
         isDone: false,
       })
     ).toBe('【】季度同步会 @0315以后 - 延至下月');
+  });
+});
+
+describe('isBlankOrBarePrefix & daily formatters', () => {
+  it('treats empty strings and bare prefilled markers as blank', () => {
+    expect(isBlankOrBarePrefix('')).toBe(true);
+    expect(isBlankOrBarePrefix('   ')).toBe(true);
+    expect(isBlankOrBarePrefix('【】')).toBe(true);
+    expect(isBlankOrBarePrefix('【x】 ')).toBe(true);
+    expect(isBlankOrBarePrefix('[]')).toBe(true);
+    expect(isBlankOrBarePrefix('- ')).toBe(true);
+    expect(isBlankOrBarePrefix('－ ')).toBe(true);
+    expect(isBlankOrBarePrefix('【】9')).toBe(false);
+    expect(isBlankOrBarePrefix('- 备忘')).toBe(false);
+  });
+
+  it('round-trips DailyTask and DailyMemo formatting cleanly', () => {
+    const line = formatDailyTaskLine({
+      startTime: '09:30',
+      endTime: '11:00',
+      title: '产品方案评审',
+      isDone: false,
+    });
+    expect(line).toBe('【】09:30-11:00｜产品方案评审');
+    expect(parseShorthandTask(line)).toEqual({
+      ok: true,
+      startTime: '09:30',
+      endTime: '11:00',
+      title: '产品方案评审',
+      isDone: false,
+    });
+
+    expect(
+      formatDailyTaskLine({
+        startTime: '14:00',
+        endTime: '15:00',
+        title: '周会',
+        isDone: true,
+      })
+    ).toBe('【x】14:00-15:00｜周会');
+
+    expect(formatDailyMemoLine({ content: '记得带会议纪要' })).toBe('- 记得带会议纪要');
   });
 });

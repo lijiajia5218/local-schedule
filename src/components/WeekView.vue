@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue';
-import { ChevronDown, ChevronUp } from 'lucide-vue-next';
+import { ChevronDown } from 'lucide-vue-next';
 import WeekBlock from '@/components/WeekBlock.vue';
 import { useScheduleStore } from '@/stores/scheduleStore';
 
@@ -11,19 +11,19 @@ const emit = defineEmits<{
 const store = useScheduleStore();
 const scrollContainerRef = ref<HTMLElement | null>(null);
 
-async function scrollWeekIntoView(weekStart: string): Promise<void> {
+async function scrollWeekIntoView(weekStart: string, instant = false): Promise<void> {
   await nextTick();
   const container = scrollContainerRef.value;
   if (!container) return;
   const el = container.querySelector<HTMLElement>(`[data-week-start="${weekStart}"]`);
   if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    el.scrollIntoView({ behavior: instant ? 'auto' : 'smooth', block: 'start' });
   }
 }
 
 onMounted(() => {
   if (store.scrollToWeekSignal) {
-    scrollWeekIntoView(store.scrollToWeekSignal.weekStart);
+    scrollWeekIntoView(store.scrollToWeekSignal.weekStart, true);
   }
 });
 
@@ -31,7 +31,7 @@ watch(
   () => store.scrollToWeekSignal,
   (signal) => {
     if (signal) {
-      scrollWeekIntoView(signal.weekStart);
+      scrollWeekIntoView(signal.weekStart, false);
     }
   }
 );
@@ -40,18 +40,6 @@ watch(
 <template>
   <div ref="scrollContainerRef" class="week-stream-scroll">
     <div class="week-stream">
-      <div class="stream-edge">
-        <button
-          type="button"
-          class="edge-btn"
-          :disabled="store.loading"
-          @click="store.loadLaterWeeks(2)"
-        >
-          <ChevronUp :size="13" />
-          <span>加载后续 2 周</span>
-        </button>
-      </div>
-
       <WeekBlock
         v-for="weekStart in store.visibleWeekStarts"
         :key="weekStart"

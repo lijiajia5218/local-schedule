@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { ArrowUpRight, Download } from 'lucide-vue-next';
+import { ArrowUpRight, ChevronLeft, Download, PanelRightClose } from 'lucide-vue-next';
 import DayMemosCell from '@/components/DayMemosCell.vue';
 import DayTasksCell from '@/components/DayTasksCell.vue';
 import WeeklyFocusPanel from '@/components/WeeklyFocusPanel.vue';
@@ -19,6 +19,9 @@ const store = useScheduleStore();
 const today = todayStr();
 
 const days = computed(() => getWeekDates(props.weekStart, today));
+const showWeekend = computed(() => store.isWeekWeekendExpanded(props.weekStart));
+const visibleDays = computed(() => (showWeekend.value ? days.value : days.value.slice(0, 5)));
+const weekendCount = computed(() => store.weekendItemCount(props.weekStart));
 const weekRangeLabel = computed(() => formatWeekRangeLabel(props.weekStart));
 const isCurrentWeek = computed(() => days.value.some((d) => d.isToday));
 const isActiveWeek = computed(() => store.activeWeekStart === props.weekStart);
@@ -72,16 +75,21 @@ function handleExportClick(): void {
     <WeeklyFocusPanel :week-start="weekStart" />
 
     <div class="week-grid-scroll">
-      <div class="week-calendar-grid" role="grid" :aria-label="`${weekRangeLabel} 日程`">
-        <!-- Row 1: 对齐的周一至周日列头 -->
+      <div
+        class="week-calendar-grid"
+        :class="{ 'is-weekend-collapsed': !showWeekend }"
+        role="grid"
+        :aria-label="`${weekRangeLabel} 日程`"
+      >
+        <!-- Row 1: 对齐的列头（5 工作日或 7 天） -->
         <header
-          v-for="(day, colIndex) in days"
+          v-for="(day, colIndex) in visibleDays"
           :key="`h-${day.date}`"
           class="day-header"
           :class="{
             'is-today': day.isToday,
             'is-weekend': day.isWeekend,
-            'is-last-col': colIndex === 6,
+            'is-last-col': showWeekend && colIndex === 6,
           }"
           :style="{ gridColumn: colIndex + 1, gridRow: 1 }"
           title="查看日视图"
@@ -93,26 +101,54 @@ function handleExportClick(): void {
               {{ day.dayNum }}
             </span>
           </div>
-          <span class="open-day-hint">
-            <ArrowUpRight :size="12" :stroke-width="1.8" />
-          </span>
+          <div class="day-header-actions">
+            <button
+              v-if="showWeekend && store.hideWeekends && colIndex === 6"
+              type="button"
+              class="collapse-weekend-btn"
+              title="收起本周周末"
+              @click.stop="store.toggleWeekWeekend(weekStart)"
+            >
+              <PanelRightClose :size="12" :stroke-width="1.8" />
+            </button>
+            <span class="open-day-hint">
+              <ArrowUpRight :size="12" :stroke-width="1.8" />
+            </span>
+          </div>
         </header>
 
-        <!-- Row 2: 每日待办区（底部分割线横跨七天完全对齐） -->
+        <!-- Row 2: 每日待办区（底部分割线横跨可见列完全对齐） -->
         <DayTasksCell
-          v-for="(day, colIndex) in days"
+          v-for="(day, colIndex) in visibleDays"
           :key="`t-${day.date}`"
           :day="day"
           :col-index="colIndex"
+          :is-last-col="showWeekend && colIndex === 6"
         />
 
         <!-- Row 3: 每日备忘区（位于同一水平分割线之下） -->
         <DayMemosCell
-          v-for="(day, colIndex) in days"
+          v-for="(day, colIndex) in visibleDays"
           :key="`m-${day.date}`"
           :day="day"
           :col-index="colIndex"
+          :is-last-col="showWeekend && colIndex === 6"
         />
+
+        <!-- 折叠态右侧周末窄提示条（跨越全部 3 行） -->
+        <button
+          v-if="!showWeekend"
+          type="button"
+          class="weekend-rail"
+          :class="{ 'has-items': weekendCount > 0 }"
+          :style="{ gridColumn: 6, gridRow: '1 / 4' }"
+          :title="weekendCount > 0 ? `展开周末（${weekendCount} 条记录）` : '展开本周周末'"
+          @click.stop="store.toggleWeekWeekend(weekStart)"
+        >
+          <ChevronLeft :size="12" :stroke-width="1.9" class="rail-chevron" />
+          <span class="rail-label">周末</span>
+          <span v-if="weekendCount > 0" class="rail-badge tabular-nums">{{ weekendCount }}</span>
+        </button>
       </div>
     </div>
   </section>
@@ -120,6 +156,7 @@ function handleExportClick(): void {
 
 <style scoped>
 .week-block {
+  scroll-margin-top: 14px;
   background: var(--bg-surface);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-md);
@@ -200,6 +237,11 @@ function handleExportClick(): void {
   min-width: 860px;
 }
 
+.week-calendar-grid.is-weekend-collapsed {
+  grid-template-columns: repeat(5, minmax(0, 1fr)) 30px;
+  min-width: 640px;
+}
+
 .day-header {
   display: flex;
   align-items: center;
@@ -276,6 +318,30 @@ function handleExportClick(): void {
   font-weight: 600;
 }
 
+.day-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.collapse-weekend-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-tertiary);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.collapse-weekend-btn:hover {
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--text-primary);
+}
+
 .open-day-hint {
   opacity: 0;
   color: var(--text-tertiary);
@@ -286,5 +352,62 @@ function handleExportClick(): void {
 
 .day-header:hover .open-day-hint {
   opacity: 1;
+}
+
+.weekend-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 30px;
+  padding: 8px 2px;
+  border: none;
+  background: var(--bg-weekend);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.weekend-rail:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.weekend-rail.has-items {
+  background: #f2f6ff;
+  color: var(--accent);
+}
+
+.weekend-rail.has-items:hover {
+  background: #e6eeff;
+}
+
+.rail-chevron {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.rail-label {
+  writing-mode: vertical-rl;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+}
+
+.rail-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
 }
 </style>

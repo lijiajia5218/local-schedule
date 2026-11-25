@@ -1,15 +1,21 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
-import { Check, Columns2, Pencil, Trash2 } from 'lucide-vue-next';
-import TaskQuickEditor from '@/components/TaskQuickEditor.vue';
+import { Check, Pencil, Trash2 } from 'lucide-vue-next';
 import type { WeekDayMeta } from '@/core/dateUtils';
-import { classifyQuickLine, formatCompactRange } from '@/core/timeParser';
+import {
+  classifyQuickLine,
+  formatCompactRange,
+  formatDailyTaskLine,
+  isBlankOrBarePrefix,
+  parseShorthandTask,
+} from '@/core/timeParser';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import type { DailyTask } from '@/types/schedule';
 
 const props = defineProps<{
   day: WeekDayMeta;
   colIndex: number;
+  isLastCol?: boolean;
 }>();
 
 const store = useScheduleStore();
@@ -18,61 +24,56 @@ const tasks = computed(() => store.tasksForDate(props.day.date));
 
 const isQuickTyping = ref(false);
 const quickDraft = ref('');
-const quickAttempted = ref(false);
+const quickError = ref('');
 const quickInputRef = ref<HTMLInputElement | null>(null);
 
-const showStructuredAdd = ref(false);
 const editingTaskId = ref<string | null>(null);
+const editDraft = ref('');
+const editError = ref('');
+const editInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
 
-const quickResult = computed(() => classifyQuickLine(quickDraft.value));
+function focusElAtEnd(el: HTMLInputElement | null): void {
+  if (!el) return;
+  el.focus();
+  const len = el.value.length;
+  el.setSelectionRange(len, len);
+}
 
-const quickError = computed(() => {
-  const res = quickResult.value;
-  if (res.kind === 'invalid') {
-    return quickAttempted.value || quickDraft.value.trim().length > 0 ? res.error : '';
-  }
-  if (res.kind === 'task' && !res.parsed.ok) {
-    return res.parsed.error;
-  }
-  return '';
-});
-
-const quickHint = computed(() => {
-  const res = quickResult.value;
-  if (res.kind === 'task' && res.parsed.ok) {
-    const p = res.parsed;
-    return `${p.startTime}-${p.endTime} · ${p.title}`;
-  }
-  if (res.kind === 'memo') {
-    return `→ 备忘：${res.content}`;
-  }
-  return '';
-});
+function resolveEditInput(): HTMLInputElement | null {
+  const r = editInputRef.value;
+  return Array.isArray(r) ? (r[0] ?? null) : r;
+}
 
 async function handleBlankClick(): Promise<void> {
-  if (showStructuredAdd.value || editingTaskId.value) return;
+  if (editingTaskId.value) return;
   isQuickTyping.value = true;
-  quickAttempted.value = false;
+  quickDraft.value = '【】';
+  quickError.value = '';
   await nextTick();
-  quickInputRef.value?.focus();
+  focusElAtEnd(quickInputRef.value);
 }
 
 function closeQuickInput(): void {
   isQuickTyping.value = false;
   quickDraft.value = '';
-  quickAttempted.value = false;
+  quickError.value = '';
 }
 
-async function commitQuickInput(keepOpen: boolean): Promise<boolean> {
+async function commitQuickInput(keepOpen: boolean): Promise<void> {
+  if (isBlankOrBarePrefix(quickDraft.value)) {
+    closeQuickInput();
+    return;
+  }
+
   const res = classifyQuickLine(quickDraft.value);
   if (res.kind === 'empty') {
-    if (!keepOpen) closeQuickInput();
-    return true;
+    closeQuickInput();
+    return;
   }
 
   if (res.kind === 'invalid') {
-    quickAttempted.value = true;
-    return false;
+    quickError.value = res.error;
+    return;
   }
 
   if (res.kind === 'memo') {
@@ -80,98 +81,101 @@ async function commitQuickInput(keepOpen: boolean): Promise<boolean> {
       memoDate: props.day.date,
       content: res.content,
     });
-    quickDraft.value = '';
-    quickAttempted.value = false;
-    if (!keepOpen) isQuickTyping.value = false;
-    else {
-      await nextTick();
-      quickInputRef.value?.focus();
+  } else {
+    if (!res.parsed.ok) {
+      quickError.value = res.parsed.error;
+      return;
     }
-    return true;
+    await store.saveTask({
+      taskDate: props.day.date,
+      startTime: res.parsed.startTime,
+      endTime: res.parsed.endTime,
+      title: res.parsed.title,
+      isDone: res.parsed.isDone,
+    });
   }
 
-  if (!res.parsed.ok) {
-    quickAttempted.value = true;
-    return false;
-  }
-
-  await store.saveTask({
-    taskDate: props.day.date,
-    startTime: res.parsed.startTime,
-    endTime: res.parsed.endTime,
-    title: res.parsed.title,
-    isDone: res.parsed.isDone,
-  });
-  quickDraft.value = '';
-  quickAttempted.value = false;
-  if (!keepOpen) isQuickTyping.value = false;
-  else {
+  quickError.value = '';
+  if (keepOpen) {
+    quickDraft.value = '【】';
     await nextTick();
-    quickInputRef.value?.focus();
+    focusElAtEnd(quickInputRef.value);
+  } else {
+    closeQuickInput();
   }
-  return true;
 }
 
 async function handleQuickEnter(): Promise<void> {
-  if (!quickDraft.value.trim()) {
-    closeQuickInput();
-    return;
-  }
   await commitQuickInput(true);
 }
 
 async function handleQuickBlur(): Promise<void> {
   if (!isQuickTyping.value) return;
-  const res = classifyQuickLine(quickDraft.value);
-  if (res.kind === 'empty') {
-    closeQuickInput();
-    return;
-  }
-  if (res.kind === 'invalid' || (res.kind === 'task' && !res.parsed.ok)) {
-    // Reject invalid / plain text input and preserve it with inline hint
-    quickAttempted.value = true;
-    return;
-  }
   await commitQuickInput(false);
 }
 
-function switchToStructuredEditor(): void {
-  isQuickTyping.value = false;
-  quickDraft.value = '';
-  quickAttempted.value = false;
+async function startEditTask(task: DailyTask): Promise<void> {
+  closeQuickInput();
+  editingTaskId.value = task.id;
+  editDraft.value = formatDailyTaskLine(task);
+  editError.value = '';
+  await nextTick();
+  focusElAtEnd(resolveEditInput());
+}
+
+function cancelEditTask(): void {
   editingTaskId.value = null;
-  showStructuredAdd.value = true;
+  editDraft.value = '';
+  editError.value = '';
 }
 
-async function handleCreateStructuredTask(payload: {
-  startTime: string;
-  endTime: string;
-  title: string;
-  isDone?: boolean;
-}): Promise<void> {
-  await store.saveTask({
-    taskDate: props.day.date,
-    startTime: payload.startTime,
-    endTime: payload.endTime,
-    title: payload.title,
-    isDone: payload.isDone ?? false,
-  });
-  showStructuredAdd.value = false;
-}
+async function handleEditEnter(task: DailyTask): Promise<void> {
+  if (editingTaskId.value !== task.id) return;
+  if (isBlankOrBarePrefix(editDraft.value)) {
+    cancelEditTask();
+    store.requestDeleteTask(task);
+    return;
+  }
 
-async function handleUpdateTask(
-  task: DailyTask,
-  payload: { startTime: string; endTime: string; title: string; isDone?: boolean }
-): Promise<void> {
+  const parsed = parseShorthandTask(editDraft.value);
+  if (!parsed.ok) {
+    editError.value = parsed.error;
+    return;
+  }
+
   await store.saveTask({
     id: task.id,
     taskDate: task.taskDate,
-    startTime: payload.startTime,
-    endTime: payload.endTime,
-    title: payload.title,
-    isDone: payload.isDone ?? task.isDone,
+    startTime: parsed.startTime,
+    endTime: parsed.endTime,
+    title: parsed.title,
+    isDone: parsed.isDone,
   });
-  editingTaskId.value = null;
+  cancelEditTask();
+}
+
+async function handleEditBlur(task: DailyTask): Promise<void> {
+  if (editingTaskId.value !== task.id) return;
+  if (isBlankOrBarePrefix(editDraft.value)) {
+    cancelEditTask();
+    return;
+  }
+
+  const parsed = parseShorthandTask(editDraft.value);
+  if (!parsed.ok) {
+    editError.value = parsed.error;
+    return;
+  }
+
+  await store.saveTask({
+    id: task.id,
+    taskDate: task.taskDate,
+    startTime: parsed.startTime,
+    endTime: parsed.endTime,
+    title: parsed.title,
+    isDone: parsed.isDone,
+  });
+  cancelEditTask();
 }
 </script>
 
@@ -181,7 +185,7 @@ async function handleUpdateTask(
     :class="{
       'is-today': day.isToday,
       'is-weekend': day.isWeekend,
-      'is-last-col': colIndex === 6,
+      'is-last-col': props.isLastCol ?? colIndex === 6,
     }"
     :style="{ gridColumn: colIndex + 1, gridRow: 2 }"
     @click="handleBlankClick()"
@@ -191,17 +195,24 @@ async function handleUpdateTask(
         v-for="task in tasks"
         :key="task.id"
         class="task-card"
-        :class="{ 'is-done': task.isDone }"
+        :class="{ 'is-done': task.isDone, 'is-editing': editingTaskId === task.id }"
         @click.stop
       >
-        <template v-if="editingTaskId === task.id">
-          <TaskQuickEditor
-            :task="task"
-            compact
-            @submit="handleUpdateTask(task, $event)"
-            @cancel="editingTaskId = null"
+        <div v-if="editingTaskId === task.id" class="doc-input-wrap inline-edit">
+          <input
+            ref="editInputRef"
+            v-model="editDraft"
+            type="text"
+            class="doc-line-input"
+            :class="{ 'has-error': Boolean(editError) }"
+            placeholder="【】9-10｜任务"
+            @input="editError = ''"
+            @keydown.enter.prevent="handleEditEnter(task)"
+            @keydown.esc.stop="cancelEditTask()"
+            @blur="handleEditBlur(task)"
           />
-        </template>
+          <p v-if="editError" class="doc-feedback error">{{ editError }}</p>
+        </div>
 
         <template v-else>
           <button
@@ -214,7 +225,7 @@ async function handleUpdateTask(
             <Check v-if="task.isDone" :size="10" :stroke-width="3" />
           </button>
 
-          <div class="task-content" @dblclick.stop="editingTaskId = task.id">
+          <div class="task-content" @dblclick.stop="startEditTask(task)">
             <div class="task-time tabular-nums">
               {{ formatCompactRange(task.startTime, task.endTime) }}
             </div>
@@ -226,7 +237,7 @@ async function handleUpdateTask(
               type="button"
               class="icon-btn"
               title="编辑"
-              @click.stop="editingTaskId = task.id"
+              @click.stop="startEditTask(task)"
             >
               <Pencil :size="11" />
             </button>
@@ -244,43 +255,19 @@ async function handleUpdateTask(
     </ul>
 
     <div v-if="isQuickTyping" class="doc-input-wrap" @click.stop>
-      <div class="doc-input-row">
-        <input
-          ref="quickInputRef"
-          v-model="quickDraft"
-          type="text"
-          class="doc-line-input"
-          :class="{ 'has-error': Boolean(quickError) }"
-          placeholder="【】9-10｜任务"
-          @keydown.enter.prevent="handleQuickEnter()"
-          @keydown.esc.stop="closeQuickInput()"
-          @blur="handleQuickBlur()"
-        />
-        <button
-          type="button"
-          class="mode-icon-btn"
-          title="切换分字段录入"
-          @mousedown.prevent="switchToStructuredEditor()"
-        >
-          <Columns2 :size="12" />
-        </button>
-      </div>
-      <p v-if="quickError" class="doc-feedback error">{{ quickError }}</p>
-      <p
-        v-else-if="quickHint"
-        class="doc-feedback"
-        :class="{ valid: quickResult.kind === 'task' && quickResult.parsed.ok }"
-      >
-        {{ quickHint }}
-      </p>
-    </div>
-
-    <div v-else-if="showStructuredAdd" class="inline-editor-wrap" @click.stop>
-      <TaskQuickEditor
-        compact
-        @submit="handleCreateStructuredTask($event)"
-        @cancel="showStructuredAdd = false"
+      <input
+        ref="quickInputRef"
+        v-model="quickDraft"
+        type="text"
+        class="doc-line-input"
+        :class="{ 'has-error': Boolean(quickError) }"
+        placeholder="【】9-10｜任务"
+        @input="quickError = ''"
+        @keydown.enter.prevent="handleQuickEnter()"
+        @keydown.esc.stop="closeQuickInput()"
+        @blur="handleQuickBlur()"
       />
+      <p v-if="quickError" class="doc-feedback error">{{ quickError }}</p>
     </div>
 
     <div v-else class="blank-affordance">
@@ -335,7 +322,11 @@ async function handleUpdateTask(
   cursor: default;
 }
 
-.task-card:hover {
+.task-card.is-editing {
+  padding: 0;
+}
+
+.task-card:hover:not(.is-editing) {
   background: var(--bg-hover);
 }
 
@@ -405,17 +396,15 @@ async function handleUpdateTask(
   border-radius: var(--radius-xs);
   background: var(--accent-soft);
   border: 1px solid var(--accent-border);
+  width: 100%;
 }
 
-.doc-input-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.doc-input-wrap.inline-edit {
+  margin-top: 0;
 }
 
 .doc-line-input {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
   border: none;
   background: transparent;
   padding: 2px 0;
@@ -433,33 +422,11 @@ async function handleUpdateTask(
   color: var(--danger);
 }
 
-.mode-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-
-.mode-icon-btn:hover {
-  background: rgba(37, 99, 235, 0.12);
-  color: var(--accent);
-}
-
 .doc-feedback {
   margin: 2px 0 0;
   font-size: 10.5px;
   line-height: 1.3;
   color: var(--text-tertiary);
-}
-
-.doc-feedback.valid {
-  color: var(--success);
 }
 
 .doc-feedback.error {
@@ -478,9 +445,5 @@ async function handleUpdateTask(
 
 .tasks-cell:hover .blank-affordance {
   opacity: 1;
-}
-
-.inline-editor-wrap {
-  width: 100%;
 }
 </style>

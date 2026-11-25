@@ -1,6 +1,13 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import { addDays, addWeeks, getWeekDates, todayStr, weekStartOf } from '@/core/dateUtils';
+import {
+  addDays,
+  addWeeks,
+  getWeekDates,
+  isWeekendDate,
+  todayStr,
+  weekStartOf,
+} from '@/core/dateUtils';
 import { generateWeekMarkdown } from '@/core/markdownExport';
 import {
   scheduleApi,
@@ -21,14 +28,34 @@ import type {
 } from '@/types/schedule';
 
 const UNDO_WINDOW_MS = 5000;
+const MAX_FUTURE_WEEKS = 1;
+const PREF_HIDE_WEEKENDS_KEY = 'local_schedule_pref_hide_weekends';
+
+function maxAllowedWeekStart(): string {
+  return addWeeks(weekStartOf(todayStr()), MAX_FUTURE_WEEKS);
+}
 
 function buildDefaultWeekWindow(centerWeekStart: string): string[] {
-  return [
-    addWeeks(centerWeekStart, 2),
-    addWeeks(centerWeekStart, 1),
-    centerWeekStart,
-    addWeeks(centerWeekStart, -1),
-  ];
+  const maxWeek = maxAllowedWeekStart();
+  const center = centerWeekStart > maxWeek ? maxWeek : centerWeekStart;
+  const next = addWeeks(center, 1);
+  const prev = addWeeks(center, -1);
+  const result: string[] = [];
+  if (next <= maxWeek) {
+    result.push(next);
+  }
+  result.push(center, prev);
+  return result;
+}
+
+function readHideWeekendsPref(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    const raw = localStorage.getItem(PREF_HIDE_WEEKENDS_KEY);
+    return raw === null ? true : raw === 'true';
+  } catch {
+    return true;
+  }
 }
 
 export const useScheduleStore = defineStore('schedule', () => {
@@ -56,10 +83,60 @@ export const useScheduleStore = defineStore('schedule', () => {
   const pendingDeletes = ref<PendingDeleteItem[]>([]);
   const toasts = ref<ToastNotice[]>([]);
 
+  const hideWeekends = ref<boolean>(readHideWeekendsPref());
+  const expandedWeekendWeeks = ref<Record<string, boolean>>({});
+
   const deleteTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const weekData = computed(() => weeksByStart.value[activeWeekStart.value] ?? null);
   const weekDays = computed(() => getWeekDates(activeWeekStart.value, todayStr()));
+  const canStepNext = computed(() => {
+    const maxWeek = maxAllowedWeekStart();
+    if (viewMode.value === 'week') {
+      return activeWeekStart.value < maxWeek;
+    }
+    return selectedDate.value < addDays(maxWeek, 6);
+  });
+
+  function toggleHideWeekends(): void {
+    hideWeekends.value = !hideWeekends.value;
+    expandedWeekendWeeks.value = {};
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(PREF_HIDE_WEEKENDS_KEY, String(hideWeekends.value));
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  function isWeekWeekendExpanded(weekStart: string): boolean {
+    if (!hideWeekends.value) return true;
+    const override = expandedWeekendWeeks.value[weekStart];
+    if (override !== undefined) return override;
+    const today = todayStr();
+    if (weekStartOf(today) === weekStart && isWeekendDate(today)) {
+      return true;
+    }
+    return false;
+  }
+
+  function toggleWeekWeekend(weekStart: string): void {
+    expandedWeekendWeeks.value = {
+      ...expandedWeekendWeeks.value,
+      [weekStart]: !isWeekWeekendExpanded(weekStart),
+    };
+  }
+
+  function weekendItemCount(weekStart: string): number {
+    const bundle = weeksByStart.value[weekStart];
+    if (!bundle) return 0;
+    const sat = addDays(weekStart, 5);
+    const sun = addDays(weekStart, 6);
+    const taskCount = bundle.tasks.filter((t) => t.taskDate === sat || t.taskDate === sun).length;
+    const memoCount = bundle.memos.filter((m) => m.memoDate === sat || m.memoDate === sun).length;
+    return taskCount + memoCount;
+  }
 
   function focusesForWeek(weekStart: string): WeeklyFocus[] {
     const items = weeksByStart.value[weekStart]?.focuses ?? [];
@@ -153,16 +230,6 @@ export const useScheduleStore = defineStore('schedule', () => {
     activeWeekStart.value = weekStartOf(weekStart);
   }
 
-  async function loadLaterWeeks(count = 2): Promise<void> {
-    const first = visibleWeekStarts.value[0] ?? activeWeekStart.value;
-    const added: string[] = [];
-    for (let i = count; i >= 1; i -= 1) {
-      added.push(addWeeks(first, i));
-    }
-    visibleWeekStarts.value = [...added, ...visibleWeekStarts.value];
-    await loadWeeks(added);
-  }
-
   async function loadEarlierWeeks(count = 2): Promise<void> {
     const last =
       visibleWeekStarts.value[visibleWeekStarts.value.length - 1] ?? activeWeekStart.value;
@@ -175,11 +242,13 @@ export const useScheduleStore = defineStore('schedule', () => {
   }
 
   async function ensureWeekVisible(weekStart: string): Promise<void> {
-    const target = weekStartOf(weekStart);
+    const maxWeek = maxAllowedWeekStart();
+    const rawTarget = weekStartOf(weekStart);
+    const target = rawTarget > maxWeek ? maxWeek : rawTarget;
     if (!visibleWeekStarts.value.includes(target)) {
       const first = visibleWeekStarts.value[0];
       const last = visibleWeekStarts.value[visibleWeekStarts.value.length - 1];
-      if (first && target === addWeeks(first, 1)) {
+      if (first && target === addWeeks(first, 1) && target <= maxWeek) {
         visibleWeekStarts.value = [target, ...visibleWeekStarts.value];
       } else if (last && target === addWeeks(last, -1)) {
         visibleWeekStarts.value = [...visibleWeekStarts.value, target];
@@ -194,8 +263,10 @@ export const useScheduleStore = defineStore('schedule', () => {
   }
 
   async function selectDate(date: string): Promise<void> {
-    selectedDate.value = date;
-    const targetWeek = weekStartOf(date);
+    const maxDate = addDays(maxAllowedWeekStart(), 6);
+    const clampedDate = date > maxDate ? maxDate : date;
+    selectedDate.value = clampedDate;
+    const targetWeek = weekStartOf(clampedDate);
     activeWeekStart.value = targetWeek;
     await ensureWeekVisible(targetWeek);
   }
@@ -222,6 +293,7 @@ export const useScheduleStore = defineStore('schedule', () => {
   }
 
   async function stepNext(): Promise<void> {
+    if (!canStepNext.value) return;
     if (viewMode.value === 'week') {
       const target = addWeeks(activeWeekStart.value, 1);
       activeWeekStart.value = target;
@@ -478,6 +550,12 @@ export const useScheduleStore = defineStore('schedule', () => {
     loading,
     pendingDeletes,
     toasts,
+    hideWeekends,
+    canStepNext,
+    toggleHideWeekends,
+    isWeekWeekendExpanded,
+    toggleWeekWeekend,
+    weekendItemCount,
     focusesForWeek,
     tasksForDate,
     memosForDate,
@@ -487,7 +565,6 @@ export const useScheduleStore = defineStore('schedule', () => {
     loadWeek,
     loadWeeks,
     loadEarlierWeeks,
-    loadLaterWeeks,
     setActiveWeek,
     selectDate,
     goToday,

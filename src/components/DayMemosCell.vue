@@ -2,13 +2,18 @@
 import { computed, nextTick, ref } from 'vue';
 import { Pencil, Trash2 } from 'lucide-vue-next';
 import type { WeekDayMeta } from '@/core/dateUtils';
-import { classifyQuickLine } from '@/core/timeParser';
+import {
+  classifyQuickLine,
+  formatDailyMemoLine,
+  isBlankOrBarePrefix,
+} from '@/core/timeParser';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import type { DailyMemo } from '@/types/schedule';
 
 const props = defineProps<{
   day: WeekDayMeta;
   colIndex: number;
+  isLastCol?: boolean;
 }>();
 
 const store = useScheduleStore();
@@ -17,61 +22,56 @@ const memos = computed(() => store.memosForDate(props.day.date));
 
 const isQuickTyping = ref(false);
 const quickDraft = ref('');
-const quickAttempted = ref(false);
+const quickError = ref('');
 const quickInputRef = ref<HTMLInputElement | null>(null);
 
 const editingMemoId = ref<string | null>(null);
 const editMemoDraft = ref('');
+const editMemoError = ref('');
+const editInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
 
-const quickResult = computed(() => classifyQuickLine(quickDraft.value));
+function focusElAtEnd(el: HTMLInputElement | null): void {
+  if (!el) return;
+  el.focus();
+  const len = el.value.length;
+  el.setSelectionRange(len, len);
+}
 
-const quickError = computed(() => {
-  const res = quickResult.value;
-  if (res.kind === 'invalid') {
-    return quickAttempted.value || quickDraft.value.trim().length > 0 ? res.error : '';
-  }
-  if (res.kind === 'task' && !res.parsed.ok) {
-    return res.parsed.error;
-  }
-  return '';
-});
-
-const quickHint = computed(() => {
-  const res = quickResult.value;
-  if (res.kind === 'memo') {
-    return `备忘：${res.content}`;
-  }
-  if (res.kind === 'task' && res.parsed.ok) {
-    const p = res.parsed;
-    return `→ 待办：${p.startTime}-${p.endTime} ${p.title}`;
-  }
-  return '';
-});
+function resolveEditInput(): HTMLInputElement | null {
+  const r = editInputRef.value;
+  return Array.isArray(r) ? (r[0] ?? null) : r;
+}
 
 async function handleBlankClick(): Promise<void> {
   if (editingMemoId.value) return;
   isQuickTyping.value = true;
-  quickAttempted.value = false;
+  quickDraft.value = '- ';
+  quickError.value = '';
   await nextTick();
-  quickInputRef.value?.focus();
+  focusElAtEnd(quickInputRef.value);
 }
 
 function closeQuickInput(): void {
   isQuickTyping.value = false;
   quickDraft.value = '';
-  quickAttempted.value = false;
+  quickError.value = '';
 }
 
-async function commitQuickInput(keepOpen: boolean): Promise<boolean> {
+async function commitQuickInput(keepOpen: boolean): Promise<void> {
+  if (isBlankOrBarePrefix(quickDraft.value)) {
+    closeQuickInput();
+    return;
+  }
+
   const res = classifyQuickLine(quickDraft.value);
   if (res.kind === 'empty') {
-    if (!keepOpen) closeQuickInput();
-    return true;
+    closeQuickInput();
+    return;
   }
 
   if (res.kind === 'invalid') {
-    quickAttempted.value = true;
-    return false;
+    quickError.value = res.error;
+    return;
   }
 
   if (res.kind === 'memo') {
@@ -79,77 +79,91 @@ async function commitQuickInput(keepOpen: boolean): Promise<boolean> {
       memoDate: props.day.date,
       content: res.content,
     });
-    quickDraft.value = '';
-    quickAttempted.value = false;
-    if (!keepOpen) isQuickTyping.value = false;
-    else {
-      await nextTick();
-      quickInputRef.value?.focus();
+  } else {
+    if (!res.parsed.ok) {
+      quickError.value = res.parsed.error;
+      return;
     }
-    return true;
+    await store.saveTask({
+      taskDate: props.day.date,
+      startTime: res.parsed.startTime,
+      endTime: res.parsed.endTime,
+      title: res.parsed.title,
+      isDone: res.parsed.isDone,
+    });
   }
 
-  if (!res.parsed.ok) {
-    quickAttempted.value = true;
-    return false;
-  }
-
-  await store.saveTask({
-    taskDate: props.day.date,
-    startTime: res.parsed.startTime,
-    endTime: res.parsed.endTime,
-    title: res.parsed.title,
-    isDone: res.parsed.isDone,
-  });
-  quickDraft.value = '';
-  quickAttempted.value = false;
-  if (!keepOpen) isQuickTyping.value = false;
-  else {
+  quickError.value = '';
+  if (keepOpen) {
+    quickDraft.value = '- ';
     await nextTick();
-    quickInputRef.value?.focus();
+    focusElAtEnd(quickInputRef.value);
+  } else {
+    closeQuickInput();
   }
-  return true;
 }
 
 async function handleQuickEnter(): Promise<void> {
-  if (!quickDraft.value.trim()) {
-    closeQuickInput();
-    return;
-  }
   await commitQuickInput(true);
 }
 
 async function handleQuickBlur(): Promise<void> {
   if (!isQuickTyping.value) return;
-  const res = classifyQuickLine(quickDraft.value);
-  if (res.kind === 'empty') {
-    closeQuickInput();
-    return;
-  }
-  if (res.kind === 'invalid' || (res.kind === 'task' && !res.parsed.ok)) {
-    quickAttempted.value = true;
-    return;
-  }
   await commitQuickInput(false);
 }
 
-function startEditMemo(memo: DailyMemo): void {
+async function startEditMemo(memo: DailyMemo): Promise<void> {
   closeQuickInput();
   editingMemoId.value = memo.id;
-  editMemoDraft.value = memo.content;
+  editMemoDraft.value = formatDailyMemoLine(memo);
+  editMemoError.value = '';
+  await nextTick();
+  focusElAtEnd(resolveEditInput());
 }
 
 function cancelEditMemo(): void {
   editingMemoId.value = null;
   editMemoDraft.value = '';
+  editMemoError.value = '';
 }
 
-async function submitEditMemo(memo: DailyMemo): Promise<void> {
-  const raw = editMemoDraft.value.trim();
-  if (!raw) return;
-  // Strip optional leading `- ` if user typed it during edit
-  const cleaned = raw.replace(/^[-－]\s*/, '').trim();
-  if (!cleaned) return;
+async function handleEditEnter(memo: DailyMemo): Promise<void> {
+  if (editingMemoId.value !== memo.id) return;
+  if (isBlankOrBarePrefix(editMemoDraft.value)) {
+    cancelEditMemo();
+    store.requestDeleteMemo(memo);
+    return;
+  }
+
+  const cleaned = editMemoDraft.value.trim().replace(/^[-－]\s*/, '').trim();
+  if (!cleaned) {
+    cancelEditMemo();
+    store.requestDeleteMemo(memo);
+    return;
+  }
+
+  await store.saveMemo({
+    id: memo.id,
+    memoDate: memo.memoDate,
+    content: cleaned,
+    sortOrder: memo.sortOrder,
+  });
+  cancelEditMemo();
+}
+
+async function handleEditBlur(memo: DailyMemo): Promise<void> {
+  if (editingMemoId.value !== memo.id) return;
+  if (isBlankOrBarePrefix(editMemoDraft.value)) {
+    cancelEditMemo();
+    return;
+  }
+
+  const cleaned = editMemoDraft.value.trim().replace(/^[-－]\s*/, '').trim();
+  if (!cleaned) {
+    cancelEditMemo();
+    return;
+  }
+
   await store.saveMemo({
     id: memo.id,
     memoDate: memo.memoDate,
@@ -166,7 +180,7 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
     :class="{
       'is-today': day.isToday,
       'is-weekend': day.isWeekend,
-      'is-last-col': colIndex === 6,
+      'is-last-col': props.isLastCol ?? colIndex === 6,
     }"
     :style="{ gridColumn: colIndex + 1, gridRow: 3 }"
     @click="handleBlankClick()"
@@ -176,25 +190,24 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
         v-for="memo in memos"
         :key="memo.id"
         class="memo-row"
+        :class="{ 'is-editing': editingMemoId === memo.id }"
         @click.stop
       >
-        <template v-if="editingMemoId === memo.id">
-          <div class="memo-edit-box" @keydown.esc.stop="cancelEditMemo()">
-            <input
-              v-model="editMemoDraft"
-              type="text"
-              class="field-input memo-inline-input"
-              autofocus
-              @keydown.enter.prevent="submitEditMemo(memo)"
-            />
-            <div class="memo-edit-btns">
-              <button type="button" class="btn btn-primary" @click="submitEditMemo(memo)">
-                保存
-              </button>
-              <button type="button" class="btn" @click="cancelEditMemo()">取消</button>
-            </div>
-          </div>
-        </template>
+        <div v-if="editingMemoId === memo.id" class="doc-input-wrap inline-edit">
+          <input
+            ref="editInputRef"
+            v-model="editMemoDraft"
+            type="text"
+            class="doc-line-input"
+            :class="{ 'has-error': Boolean(editMemoError) }"
+            placeholder="- 备忘内容"
+            @input="editMemoError = ''"
+            @keydown.enter.prevent="handleEditEnter(memo)"
+            @keydown.esc.stop="cancelEditMemo()"
+            @blur="handleEditBlur(memo)"
+          />
+          <p v-if="editMemoError" class="doc-feedback error">{{ editMemoError }}</p>
+        </div>
 
         <template v-else>
           <span class="memo-dot">-</span>
@@ -231,18 +244,12 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
         class="doc-line-input"
         :class="{ 'has-error': Boolean(quickError) }"
         placeholder="- 备忘内容"
+        @input="quickError = ''"
         @keydown.enter.prevent="handleQuickEnter()"
         @keydown.esc.stop="closeQuickInput()"
         @blur="handleQuickBlur()"
       />
       <p v-if="quickError" class="doc-feedback error">{{ quickError }}</p>
-      <p
-        v-else-if="quickHint"
-        class="doc-feedback"
-        :class="{ valid: quickResult.kind === 'memo' }"
-      >
-        {{ quickHint }}
-      </p>
     </div>
 
     <div v-else class="blank-affordance">
@@ -299,7 +306,11 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
   transition: background-color 0.12s ease;
 }
 
-.memo-row:hover {
+.memo-row.is-editing {
+  padding: 0;
+}
+
+.memo-row:hover:not(.is-editing) {
   background: var(--bg-hover);
 }
 
@@ -346,6 +357,7 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
   border-radius: var(--radius-xs);
   background: var(--bg-surface);
   border: 1px solid var(--accent-border);
+  width: 100%;
 }
 
 .doc-line-input {
@@ -374,10 +386,6 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
   color: var(--text-tertiary);
 }
 
-.doc-feedback.valid {
-  color: var(--success);
-}
-
 .doc-feedback.error {
   color: var(--danger);
 }
@@ -394,30 +402,5 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
 
 .memo-cell:hover .blank-affordance {
   opacity: 1;
-}
-
-.memo-edit-box {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  width: 100%;
-}
-
-.memo-inline-input {
-  height: 27px;
-  font-size: 11.5px;
-  padding: 0 7px;
-}
-
-.memo-edit-btns {
-  display: flex;
-  justify-content: flex-end;
-  gap: 4px;
-}
-
-.memo-edit-btns .btn {
-  height: 23px;
-  padding: 0 8px;
-  font-size: 11px;
 }
 </style>

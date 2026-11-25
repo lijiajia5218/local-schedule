@@ -43,21 +43,25 @@ describe('scheduleStore MVP flows', () => {
     vi.useRealTimers();
   });
 
-  it('loads multi-week window in descending order (future on top, past on bottom)', async () => {
+  it('loads multi-week window in descending order with hard cap of 1 future week', async () => {
     const store = useScheduleStore();
     await store.init();
 
     const current = weekStartOf(todayStr());
     expect(store.visibleWeekStarts).toEqual([
-      addWeeks(current, 2),
       addWeeks(current, 1),
       current,
       addWeeks(current, -1),
     ]);
 
-    await store.loadLaterWeeks(2);
-    expect(store.visibleWeekStarts[0]).toBe(addWeeks(current, 4));
-    expect(store.visibleWeekStarts[1]).toBe(addWeeks(current, 3));
+    expect(store.canStepNext).toBe(true);
+    await store.stepNext();
+    expect(store.activeWeekStart).toBe(addWeeks(current, 1));
+    expect(store.canStepNext).toBe(false);
+
+    // Hard cap: stepping next past +1w is a no-op
+    await store.stepNext();
+    expect(store.activeWeekStart).toBe(addWeeks(current, 1));
 
     await store.loadEarlierWeeks(2);
     const lastIdx = store.visibleWeekStarts.length - 1;
@@ -182,5 +186,40 @@ describe('scheduleStore MVP flows', () => {
     // Restore full JSON backup and confirm deleted task comes back
     await store.restoreJsonBackup(backupBeforeDelete.payload);
     expect(store.tasksForDate(friday).some((t) => t.id === tempTask.id)).toBe(true);
+  });
+
+  it('collapses weekends by default, supports per-week toggle, and auto-expands on weekends', async () => {
+    // 2026-11-25 is Wednesday -> hideWeekends defaults to true, current week collapsed
+    vi.setSystemTime(new Date(2026, 10, 25, 10, 0, 0));
+    const store = useScheduleStore();
+    await store.init();
+
+    const wedWeek = weekStartOf(todayStr());
+    expect(store.hideWeekends).toBe(true);
+    expect(store.isWeekWeekendExpanded(wedWeek)).toBe(false);
+
+    const saturday = addDays(wedWeek, 5);
+    await store.saveMemo({ memoDate: saturday, content: '周六事项' });
+    expect(store.weekendItemCount(wedWeek)).toBeGreaterThanOrEqual(1);
+
+    // Toggle only this week open
+    store.toggleWeekWeekend(wedWeek);
+    expect(store.isWeekWeekendExpanded(wedWeek)).toBe(true);
+    expect(store.isWeekWeekendExpanded(addWeeks(wedWeek, 1))).toBe(false);
+
+    // Global toggle shows all weeks and persists preference
+    store.toggleHideWeekends();
+    expect(store.hideWeekends).toBe(false);
+    expect(store.isWeekWeekendExpanded(addWeeks(wedWeek, 1))).toBe(true);
+
+    // Toggle back to hidden -> resets per-week override
+    store.toggleHideWeekends();
+    expect(store.hideWeekends).toBe(true);
+    expect(store.isWeekWeekendExpanded(wedWeek)).toBe(false);
+
+    // Simulate Saturday -> current week auto-expands even when hideWeekends=true
+    vi.setSystemTime(new Date(2026, 10, 28, 10, 0, 0));
+    expect(store.isWeekWeekendExpanded(wedWeek)).toBe(true);
+    expect(store.isWeekWeekendExpanded(addWeeks(wedWeek, 1))).toBe(false);
   });
 });

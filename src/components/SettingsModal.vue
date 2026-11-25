@@ -1,8 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { Database, FolderOpen, HardDrive, ShieldCheck, X } from 'lucide-vue-next';
+import {
+  ArrowUpCircle,
+  Database,
+  FolderOpen,
+  HardDrive,
+  RefreshCw,
+  ShieldCheck,
+  X,
+} from 'lucide-vue-next';
 import { isTauriRuntime } from '@/services/scheduleApi';
 import { useScheduleStore } from '@/stores/scheduleStore';
+import { useUpdaterStore } from '@/stores/updaterStore';
 
 const emit = defineEmits<{
   close: [];
@@ -10,11 +19,13 @@ const emit = defineEmits<{
 }>();
 
 const store = useScheduleStore();
+const updater = useUpdaterStore();
 const dirInput = ref(store.settings.dataDir);
 const saving = ref(false);
 const errorMsg = ref('');
+const isDesktop = computed(() => isTauriRuntime());
 const runtimeMode = computed(() =>
-  isTauriRuntime() ? '桌面本地 SQLite 模式' : '浏览器预览模式（LocalStorage 持久化）'
+  isDesktop.value ? '桌面本地 SQLite 模式' : '浏览器预览模式（LocalStorage 持久化）'
 );
 
 async function saveDataDir(): Promise<void> {
@@ -109,6 +120,73 @@ function jumpToExport(): void {
           </div>
         </div>
 
+        <div class="update-card">
+          <div class="update-head">
+            <div class="update-title-wrap">
+              <ArrowUpCircle :size="14" />
+              <span class="update-title">软件版本与更新</span>
+              <span class="version-tag tabular-nums">v{{ updater.currentVersion }}</span>
+            </div>
+            <button
+              type="button"
+              class="btn"
+              :disabled="updater.status === 'checking' || updater.status === 'downloading'"
+              @click="updater.checkForUpdates({ silent: false })"
+            >
+              <RefreshCw
+                :size="13"
+                :class="{ spinning: updater.status === 'checking' }"
+              />
+              <span>{{ updater.status === 'checking' ? '检查中…' : '检查更新' }}</span>
+            </button>
+          </div>
+
+          <p v-if="updater.status === 'up-to-date'" class="update-status ok">
+            当前已是最新版本。
+          </p>
+          <p v-else-if="updater.status === 'unsupported'" class="update-status">
+            仅桌面客户端支持自动检查与原地更新。
+          </p>
+          <p v-else-if="updater.status === 'error'" class="update-status err">
+            {{ updater.errorMessage }}
+          </p>
+
+          <div
+            v-else-if="updater.status === 'available' || updater.status === 'downloading'"
+            class="update-available-box"
+          >
+            <div class="update-available-row">
+              <span class="new-ver-label">发现新版本 v{{ updater.availableVersion }}</span>
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="updater.status === 'downloading'"
+                @click="updater.downloadAndInstallUpdate()"
+              >
+                {{
+                  updater.status === 'downloading'
+                    ? updater.downloadProgress !== null
+                      ? `下载中 ${updater.downloadProgress}%`
+                      : '下载并安装中…'
+                    : '立即更新并重启'
+                }}
+              </button>
+            </div>
+            <p v-if="updater.releaseNotes" class="release-notes">
+              {{ updater.releaseNotes }}
+            </p>
+            <div
+              v-if="updater.status === 'downloading' && updater.downloadProgress !== null"
+              class="progress-track"
+            >
+              <div
+                class="progress-fill"
+                :style="{ width: `${updater.downloadProgress}%` }"
+              />
+            </div>
+          </div>
+        </div>
+
         <div class="footer-row">
           <button type="button" class="btn" @click="jumpToExport()">
             打开导出与 JSON 备份…
@@ -167,7 +245,7 @@ function jumpToExport(): void {
   padding: 16px 20px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .runtime-banner {
@@ -226,7 +304,8 @@ function jumpToExport(): void {
   color: var(--danger);
 }
 
-.info-card {
+.info-card,
+.update-card {
   padding: 12px 14px;
   border-radius: var(--radius-md);
   background: var(--bg-surface-subtle);
@@ -256,6 +335,104 @@ function jumpToExport(): void {
   color: var(--text-primary);
   text-align: right;
   word-break: break-all;
+}
+
+.update-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.update-title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+
+.update-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.version-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.update-status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.update-status.ok {
+  color: var(--success);
+}
+
+.update-status.err {
+  color: var(--danger);
+}
+
+.update-available-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.update-available-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.new-ver-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.release-notes {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  white-space: pre-line;
+}
+
+.progress-track {
+  width: 100%;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.16s ease;
 }
 
 .footer-row {

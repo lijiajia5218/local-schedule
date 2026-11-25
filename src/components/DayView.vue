@@ -4,14 +4,18 @@ import {
   ArrowLeft,
   Check,
   Clock,
-  Columns2,
   Pencil,
   StickyNote,
   Trash2,
 } from 'lucide-vue-next';
-import TaskQuickEditor from '@/components/TaskQuickEditor.vue';
 import { formatFullDayLabel, isWeekendDate, todayStr } from '@/core/dateUtils';
-import { classifyQuickLine, parseShorthandTask } from '@/core/timeParser';
+import {
+  classifyQuickLine,
+  formatDailyMemoLine,
+  formatDailyTaskLine,
+  isBlankOrBarePrefix,
+  parseShorthandTask,
+} from '@/core/timeParser';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import type { DailyMemo, DailyTask } from '@/types/schedule';
 
@@ -27,11 +31,13 @@ const doneCount = computed(() => tasks.value.filter((t) => t.isDone).length);
 
 const isTaskInlineOpen = ref(false);
 const taskInlineDraft = ref('');
-const taskInlineAttempted = ref(false);
+const taskInlineError = ref('');
 const taskInlineRef = ref<HTMLInputElement | null>(null);
 
-const showStructuredTaskEditor = ref(false);
 const editingTaskId = ref<string | null>(null);
+const editTaskDraft = ref('');
+const editTaskError = ref('');
+const editTaskRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
 
 const isMemoInlineOpen = ref(false);
 const newMemoText = ref('');
@@ -40,36 +46,47 @@ const memoInlineRef = ref<HTMLInputElement | null>(null);
 
 const editingMemoId = ref<string | null>(null);
 const editMemoText = ref('');
+const editMemoError = ref('');
+const editMemoRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
 
-const taskInlineParsed = computed(() => {
-  if (!taskInlineDraft.value.trim()) return null;
-  return parseShorthandTask(taskInlineDraft.value);
-});
+function focusElAtEnd(el: HTMLInputElement | null): void {
+  if (!el) return;
+  el.focus();
+  const len = el.value.length;
+  el.setSelectionRange(len, len);
+}
+
+function resolveArrayRef(r: HTMLInputElement | HTMLInputElement[] | null): HTMLInputElement | null {
+  return Array.isArray(r) ? (r[0] ?? null) : r;
+}
 
 async function openTaskInline(): Promise<void> {
-  if (showStructuredTaskEditor.value || editingTaskId.value) return;
+  if (editingTaskId.value) return;
   isTaskInlineOpen.value = true;
-  taskInlineAttempted.value = false;
+  taskInlineDraft.value = '【】';
+  taskInlineError.value = '';
   await nextTick();
-  taskInlineRef.value?.focus();
+  focusElAtEnd(taskInlineRef.value);
 }
 
 function closeTaskInline(): void {
   isTaskInlineOpen.value = false;
   taskInlineDraft.value = '';
-  taskInlineAttempted.value = false;
+  taskInlineError.value = '';
 }
 
-async function submitTaskInline(): Promise<void> {
-  if (!taskInlineDraft.value.trim()) {
+async function commitTaskInline(keepOpen: boolean): Promise<void> {
+  if (isBlankOrBarePrefix(taskInlineDraft.value)) {
     closeTaskInline();
     return;
   }
+
   const parsed = parseShorthandTask(taskInlineDraft.value);
   if (!parsed.ok) {
-    taskInlineAttempted.value = true;
+    taskInlineError.value = parsed.error;
     return;
   }
+
   await store.saveTask({
     taskDate: store.selectedDate,
     startTime: parsed.startTime,
@@ -77,48 +94,97 @@ async function submitTaskInline(): Promise<void> {
     title: parsed.title,
     isDone: parsed.isDone,
   });
-  taskInlineDraft.value = '';
-  taskInlineAttempted.value = false;
+
+  taskInlineError.value = '';
+  if (keepOpen) {
+    taskInlineDraft.value = '【】';
+    await nextTick();
+    focusElAtEnd(taskInlineRef.value);
+  } else {
+    closeTaskInline();
+  }
+}
+
+async function handleTaskInlineEnter(): Promise<void> {
+  await commitTaskInline(true);
+}
+
+async function handleTaskInlineBlur(): Promise<void> {
+  if (!isTaskInlineOpen.value) return;
+  await commitTaskInline(false);
+}
+
+async function startEditTask(task: DailyTask): Promise<void> {
+  closeTaskInline();
+  editingTaskId.value = task.id;
+  editTaskDraft.value = formatDailyTaskLine(task);
+  editTaskError.value = '';
   await nextTick();
-  taskInlineRef.value?.focus();
+  focusElAtEnd(resolveArrayRef(editTaskRef.value));
 }
 
-async function handleCreateTask(payload: {
-  startTime: string;
-  endTime: string;
-  title: string;
-}): Promise<void> {
-  await store.saveTask({
-    taskDate: store.selectedDate,
-    startTime: payload.startTime,
-    endTime: payload.endTime,
-    title: payload.title,
-    isDone: false,
-  });
-  showStructuredTaskEditor.value = false;
+function cancelEditTask(): void {
+  editingTaskId.value = null;
+  editTaskDraft.value = '';
+  editTaskError.value = '';
 }
 
-async function handleUpdateTask(
-  task: DailyTask,
-  payload: { startTime: string; endTime: string; title: string }
-): Promise<void> {
+async function handleEditTaskEnter(task: DailyTask): Promise<void> {
+  if (editingTaskId.value !== task.id) return;
+  if (isBlankOrBarePrefix(editTaskDraft.value)) {
+    cancelEditTask();
+    store.requestDeleteTask(task);
+    return;
+  }
+
+  const parsed = parseShorthandTask(editTaskDraft.value);
+  if (!parsed.ok) {
+    editTaskError.value = parsed.error;
+    return;
+  }
+
   await store.saveTask({
     id: task.id,
     taskDate: task.taskDate,
-    startTime: payload.startTime,
-    endTime: payload.endTime,
-    title: payload.title,
-    isDone: task.isDone,
+    startTime: parsed.startTime,
+    endTime: parsed.endTime,
+    title: parsed.title,
+    isDone: parsed.isDone,
   });
-  editingTaskId.value = null;
+  cancelEditTask();
+}
+
+async function handleEditTaskBlur(task: DailyTask): Promise<void> {
+  if (editingTaskId.value !== task.id) return;
+  if (isBlankOrBarePrefix(editTaskDraft.value)) {
+    cancelEditTask();
+    return;
+  }
+
+  const parsed = parseShorthandTask(editTaskDraft.value);
+  if (!parsed.ok) {
+    editTaskError.value = parsed.error;
+    return;
+  }
+
+  await store.saveTask({
+    id: task.id,
+    taskDate: task.taskDate,
+    startTime: parsed.startTime,
+    endTime: parsed.endTime,
+    title: parsed.title,
+    isDone: parsed.isDone,
+  });
+  cancelEditTask();
 }
 
 async function openMemoInline(): Promise<void> {
   if (editingMemoId.value) return;
   isMemoInlineOpen.value = true;
+  newMemoText.value = '- ';
   newMemoError.value = '';
   await nextTick();
-  memoInlineRef.value?.focus();
+  focusElAtEnd(memoInlineRef.value);
 }
 
 function closeMemoInline(): void {
@@ -127,24 +193,24 @@ function closeMemoInline(): void {
   newMemoError.value = '';
 }
 
-async function submitNewMemo(): Promise<void> {
-  if (!newMemoText.value.trim()) {
+async function commitNewMemo(keepOpen: boolean): Promise<void> {
+  if (isBlankOrBarePrefix(newMemoText.value)) {
     closeMemoInline();
     return;
   }
+
   const res = classifyQuickLine(newMemoText.value);
+  if (res.kind === 'empty') {
+    closeMemoInline();
+    return;
+  }
+
   if (res.kind === 'memo') {
     await store.saveMemo({
       memoDate: store.selectedDate,
       content: res.content,
     });
-    newMemoText.value = '';
-    newMemoError.value = '';
-    await nextTick();
-    memoInlineRef.value?.focus();
-    return;
-  }
-  if (res.kind === 'task' && res.parsed.ok) {
+  } else if (res.kind === 'task' && res.parsed.ok) {
     await store.saveTask({
       taskDate: store.selectedDate,
       startTime: res.parsed.startTime,
@@ -152,36 +218,87 @@ async function submitNewMemo(): Promise<void> {
       title: res.parsed.title,
       isDone: res.parsed.isDone,
     });
-    newMemoText.value = '';
-    newMemoError.value = '';
-    await nextTick();
-    memoInlineRef.value?.focus();
+  } else {
+    newMemoError.value =
+      res.kind === 'invalid'
+        ? res.error
+        : res.kind === 'task' && !res.parsed.ok
+          ? res.parsed.error
+          : '请以「- 」开头记录备忘';
     return;
   }
-  newMemoError.value =
-    res.kind === 'invalid'
-      ? res.error
-      : res.kind === 'task' && !res.parsed.ok
-        ? res.parsed.error
-        : '请以「- 」开头记录备忘';
+
+  newMemoError.value = '';
+  if (keepOpen) {
+    newMemoText.value = '- ';
+    await nextTick();
+    focusElAtEnd(memoInlineRef.value);
+  } else {
+    closeMemoInline();
+  }
 }
 
-function startEditMemo(memo: DailyMemo): void {
-  isMemoInlineOpen.value = false;
+async function handleMemoInlineEnter(): Promise<void> {
+  await commitNewMemo(true);
+}
+
+async function handleMemoInlineBlur(): Promise<void> {
+  if (!isMemoInlineOpen.value) return;
+  await commitNewMemo(false);
+}
+
+async function startEditMemo(memo: DailyMemo): Promise<void> {
+  closeMemoInline();
   editingMemoId.value = memo.id;
-  editMemoText.value = memo.content;
+  editMemoText.value = formatDailyMemoLine(memo);
+  editMemoError.value = '';
+  await nextTick();
+  focusElAtEnd(resolveArrayRef(editMemoRef.value));
 }
 
 function cancelEditMemo(): void {
   editingMemoId.value = null;
   editMemoText.value = '';
+  editMemoError.value = '';
 }
 
-async function submitEditMemo(memo: DailyMemo): Promise<void> {
-  const raw = editMemoText.value.trim();
-  if (!raw) return;
-  const content = raw.replace(/^[-－]\s*/, '').trim();
-  if (!content) return;
+async function handleEditMemoEnter(memo: DailyMemo): Promise<void> {
+  if (editingMemoId.value !== memo.id) return;
+  if (isBlankOrBarePrefix(editMemoText.value)) {
+    cancelEditMemo();
+    store.requestDeleteMemo(memo);
+    return;
+  }
+
+  const content = editMemoText.value.trim().replace(/^[-－]\s*/, '').trim();
+  if (!content) {
+    cancelEditMemo();
+    store.requestDeleteMemo(memo);
+    return;
+  }
+
+  await store.saveMemo({
+    id: memo.id,
+    memoDate: memo.memoDate,
+    content,
+    sortOrder: memo.sortOrder,
+  });
+  cancelEditMemo();
+}
+
+async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
+  if (editingMemoId.value !== memo.id) return;
+  if (isBlankOrBarePrefix(editMemoText.value)) {
+    cancelEditMemo();
+    return;
+  }
+
+  const content = editMemoText.value.trim().replace(/^[-－]\s*/, '').trim();
+  if (!content) {
+    cancelEditMemo();
+    return;
+  }
+
   await store.saveMemo({
     id: memo.id,
     memoDate: memo.memoDate,
@@ -219,18 +336,7 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
             <Clock :size="15" />
             <span>时间段任务</span>
           </div>
-          <button
-            type="button"
-            class="icon-btn"
-            title="分字段表单"
-            @click.stop="
-              closeTaskInline();
-              editingTaskId = null;
-              showStructuredTaskEditor = !showStructuredTaskEditor;
-            "
-          >
-            <Columns2 :size="14" />
-          </button>
+          <span v-if="tasks.length > 0" class="memo-count tabular-nums">{{ tasks.length }} 项</span>
         </div>
 
         <ul v-if="tasks.length > 0" class="day-task-list">
@@ -238,18 +344,24 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
             v-for="task in tasks"
             :key="task.id"
             class="day-task-row"
-            :class="{ 'is-done': task.isDone }"
+            :class="{ 'is-done': task.isDone, 'is-editing': editingTaskId === task.id }"
             @click.stop
           >
-            <template v-if="editingTaskId === task.id">
-              <div class="full-edit-wrap">
-                <TaskQuickEditor
-                  :task="task"
-                  @submit="handleUpdateTask(task, $event)"
-                  @cancel="editingTaskId = null"
-                />
-              </div>
-            </template>
+            <div v-if="editingTaskId === task.id" class="doc-compose full-edit-wrap">
+              <input
+                ref="editTaskRef"
+                v-model="editTaskDraft"
+                type="text"
+                class="doc-input"
+                :class="{ 'has-error': Boolean(editTaskError) }"
+                placeholder="【】9-10｜任务"
+                @input="editTaskError = ''"
+                @keydown.enter.prevent="handleEditTaskEnter(task)"
+                @keydown.esc.stop="cancelEditTask()"
+                @blur="handleEditTaskBlur(task)"
+              />
+              <p v-if="editTaskError" class="doc-err">{{ editTaskError }}</p>
+            </div>
 
             <template v-else>
               <button
@@ -266,7 +378,7 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
                 {{ task.startTime }} - {{ task.endTime }}
               </span>
 
-              <span class="task-name" @dblclick.stop="editingTaskId = task.id">
+              <span class="task-name" @dblclick.stop="startEditTask(task)">
                 {{ task.title }}
               </span>
 
@@ -275,7 +387,7 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
                   type="button"
                   class="icon-btn"
                   title="编辑"
-                  @click.stop="editingTaskId = task.id"
+                  @click.stop="startEditTask(task)"
                 >
                   <Pencil :size="13" />
                 </button>
@@ -298,23 +410,14 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
             v-model="taskInlineDraft"
             type="text"
             class="doc-input"
+            :class="{ 'has-error': Boolean(taskInlineError) }"
             placeholder="【】9-10｜周会"
-            @keydown.enter.prevent="submitTaskInline()"
+            @input="taskInlineError = ''"
+            @keydown.enter.prevent="handleTaskInlineEnter()"
             @keydown.esc.stop="closeTaskInline()"
+            @blur="handleTaskInlineBlur()"
           />
-          <p v-if="taskInlineParsed && !taskInlineParsed.ok && (taskInlineAttempted || taskInlineDraft.trim())" class="doc-err">
-            {{ taskInlineParsed.error }}
-          </p>
-          <p v-else-if="taskInlineParsed && taskInlineParsed.ok" class="doc-ok tabular-nums">
-            {{ taskInlineParsed.startTime }} - {{ taskInlineParsed.endTime }} · {{ taskInlineParsed.title }}
-          </p>
-        </div>
-
-        <div v-else-if="showStructuredTaskEditor" class="editor-slot" @click.stop>
-          <TaskQuickEditor
-            @submit="handleCreateTask($event)"
-            @cancel="showStructuredTaskEditor = false"
-          />
+          <p v-if="taskInlineError" class="doc-err">{{ taskInlineError }}</p>
         </div>
 
         <div v-else class="ghost-entry">
@@ -337,23 +440,24 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
             v-for="memo in memos"
             :key="memo.id"
             class="day-memo-row"
+            :class="{ 'is-editing': editingMemoId === memo.id }"
             @click.stop
           >
-            <template v-if="editingMemoId === memo.id">
-              <div class="memo-edit-row" @keydown.esc.stop="cancelEditMemo()">
-                <input
-                  v-model="editMemoText"
-                  type="text"
-                  class="field-input"
-                  autofocus
-                  @keydown.enter.prevent="submitEditMemo(memo)"
-                />
-                <button type="button" class="btn btn-primary" @click="submitEditMemo(memo)">
-                  保存
-                </button>
-                <button type="button" class="btn" @click="cancelEditMemo()">取消</button>
-              </div>
-            </template>
+            <div v-if="editingMemoId === memo.id" class="doc-compose full-edit-wrap">
+              <input
+                ref="editMemoRef"
+                v-model="editMemoText"
+                type="text"
+                class="doc-input"
+                :class="{ 'has-error': Boolean(editMemoError) }"
+                placeholder="- 备忘内容"
+                @input="editMemoError = ''"
+                @keydown.enter.prevent="handleEditMemoEnter(memo)"
+                @keydown.esc.stop="cancelEditMemo()"
+                @blur="handleEditMemoBlur(memo)"
+              />
+              <p v-if="editMemoError" class="doc-err">{{ editMemoError }}</p>
+            </div>
 
             <template v-else>
               <span class="bullet">•</span>
@@ -388,10 +492,12 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
             v-model="newMemoText"
             type="text"
             class="doc-input"
+            :class="{ 'has-error': Boolean(newMemoError) }"
             placeholder="- 备忘内容"
             @input="newMemoError = ''"
-            @keydown.enter.prevent="submitNewMemo()"
+            @keydown.enter.prevent="handleMemoInlineEnter()"
             @keydown.esc.stop="closeMemoInline()"
+            @blur="handleMemoInlineBlur()"
           />
           <p v-if="newMemoError" class="doc-err">{{ newMemoError }}</p>
         </div>
@@ -523,8 +629,13 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
   transition: background-color 0.12s ease;
 }
 
-.day-task-row:hover,
-.day-memo-row:hover {
+.day-task-row.is-editing,
+.day-memo-row.is-editing {
+  padding: 0;
+}
+
+.day-task-row:hover:not(.is-editing),
+.day-memo-row:hover:not(.is-editing) {
   background: var(--bg-surface-subtle);
 }
 
@@ -574,10 +685,6 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
   width: 100%;
 }
 
-.editor-slot {
-  padding-top: 4px;
-}
-
 .bullet {
   color: var(--accent);
   font-weight: 700;
@@ -590,13 +697,6 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
   min-width: 0;
   font-size: 13px;
   color: var(--text-secondary);
-}
-
-.memo-edit-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
 }
 
 .doc-compose {
@@ -619,16 +719,14 @@ async function submitEditMemo(memo: DailyMemo): Promise<void> {
   color: var(--text-tertiary);
 }
 
+.doc-input.has-error {
+  color: var(--danger);
+}
+
 .doc-err {
   margin: 4px 0 0;
   font-size: 11.5px;
   color: var(--danger);
-}
-
-.doc-ok {
-  margin: 4px 0 0;
-  font-size: 11.5px;
-  color: var(--success);
 }
 
 .ghost-entry {

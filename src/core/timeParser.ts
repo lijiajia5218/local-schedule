@@ -1,4 +1,6 @@
 import type {
+  DailyMemo,
+  DailyTask,
   ParseShorthandResult,
   ParseTimeResult,
   ParseWeeklyFocusResult,
@@ -279,6 +281,28 @@ export function formatWeeklyFocusLine(
   const target = focus.targetText ? ` @${focus.targetText}` : '';
   const note = focus.statusNote ? ` - ${focus.statusNote}` : '';
   return `${prefix}${focus.title}${target}${note}`;
+}
+
+const BARE_PREFIX_REGEX = /^(?:【\s*[xX√✓]?\s*】|\[\s*[xX√✓]?\s*\]|[-－])$/;
+
+/**
+ * Returns true when input is empty or contains only an auto-prefilled marker (`【】`, `- `, etc.)
+ * with no content after it.
+ */
+export function isBlankOrBarePrefix(raw: string): boolean {
+  const trimmed = raw.trim();
+  return trimmed === '' || BARE_PREFIX_REGEX.test(trimmed);
+}
+
+export function formatDailyTaskLine(
+  task: Pick<DailyTask, 'startTime' | 'endTime' | 'title' | 'isDone'>
+): string {
+  const prefix = task.isDone ? '【x】' : '【】';
+  return `${prefix}${task.startTime}-${task.endTime}｜${task.title}`;
+}
+
+export function formatDailyMemoLine(memo: Pick<DailyMemo, 'content'>): string {
+  return `- ${memo.content}`;
 }
 
 export function formatCompactRange(startTime: string, endTime: string): string {

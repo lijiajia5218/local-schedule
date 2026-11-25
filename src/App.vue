@@ -7,10 +7,13 @@ import SettingsModal from '@/components/SettingsModal.vue';
 import UndoToast from '@/components/UndoToast.vue';
 import WeekView from '@/components/WeekView.vue';
 import { useScheduleStore } from '@/stores/scheduleStore';
+import { useUpdaterStore } from '@/stores/updaterStore';
 
 const store = useScheduleStore();
+const updater = useUpdaterStore();
 const showExportModal = ref(false);
 const showSettingsModal = ref(false);
+let updateCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
 function handleGlobalKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
@@ -42,10 +45,18 @@ function handleGlobalKeydown(e: KeyboardEvent): void {
 
 onMounted(() => {
   store.init();
+  updater.ensureCurrentVersion();
+  updateCheckTimer = setTimeout(() => {
+    updater.checkForUpdates({ silent: true });
+  }, 3000);
   window.addEventListener('keydown', handleGlobalKeydown);
 });
 
 onUnmounted(() => {
+  if (updateCheckTimer) {
+    clearTimeout(updateCheckTimer);
+    updateCheckTimer = null;
+  }
   window.removeEventListener('keydown', handleGlobalKeydown);
 });
 </script>

@@ -12,6 +12,8 @@ pub fn run() {
     let store = DataStore::initialize().expect("初始化本地 SQLite 数据库失败");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(Mutex::new(store))
         .invoke_handler(tauri::generate_handler![
             commands::get_week,

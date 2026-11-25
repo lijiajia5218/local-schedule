@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
+  ArrowUpCircle,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Columns3,
   Download,
   HelpCircle,
   Settings,
 } from 'lucide-vue-next';
 import { formatFullDayLabel, formatWeekRangeLabel, todayStr } from '@/core/dateUtils';
 import { useScheduleStore } from '@/stores/scheduleStore';
+import { useUpdaterStore } from '@/stores/updaterStore';
 
 const emit = defineEmits<{
   openExport: [];
@@ -17,6 +20,7 @@ const emit = defineEmits<{
 }>();
 
 const store = useScheduleStore();
+const updater = useUpdaterStore();
 const showSyntaxGuide = ref(false);
 const syntaxWrapRef = ref<HTMLElement | null>(null);
 
@@ -28,9 +32,12 @@ const modKey = isMac ? '⌘' : 'Ctrl+';
 const prevTitle = computed(() =>
   store.viewMode === 'week' ? `上一周 (${modKey}←)` : `前一天 (${modKey}←)`
 );
-const nextTitle = computed(() =>
-  store.viewMode === 'week' ? `下一周 (${modKey}→)` : `后一天 (${modKey}→)`
-);
+const nextTitle = computed(() => {
+  if (!store.canStepNext) {
+    return '最多可查看下周 1 周';
+  }
+  return store.viewMode === 'week' ? `下一周 (${modKey}→)` : `后一天 (${modKey}→)`;
+});
 
 const periodLabel = computed(() => {
   if (store.viewMode === 'week') {
@@ -88,6 +95,7 @@ onUnmounted(() => {
           <button
             type="button"
             class="stepper-btn"
+            :disabled="!store.canStepNext"
             :title="nextTitle"
             @click="store.stepNext()"
           >
@@ -107,6 +115,18 @@ onUnmounted(() => {
     </div>
 
     <div class="topbar-right">
+      <button
+        v-if="store.viewMode === 'week'"
+        type="button"
+        class="btn weekend-toggle-btn"
+        :class="{ 'is-collapsed': store.hideWeekends }"
+        :title="store.hideWeekends ? '当前隐藏周末，点击显示 7 天' : '当前显示 7 天，点击隐藏周末'"
+        @click="store.toggleHideWeekends()"
+      >
+        <Columns3 :size="13.5" :stroke-width="1.8" />
+        <span>{{ store.hideWeekends ? '5天' : '7天' }}</span>
+      </button>
+
       <div class="segmented" role="tablist" aria-label="视图切换">
         <button
           type="button"
@@ -131,6 +151,17 @@ onUnmounted(() => {
       </div>
 
       <div class="action-group">
+        <button
+          v-if="updater.status === 'available' && updater.availableVersion"
+          type="button"
+          class="update-pill"
+          title="发现新版本，点击查看并更新"
+          @click="emit('openSettings')"
+        >
+          <ArrowUpCircle :size="13" :stroke-width="2" />
+          <span>v{{ updater.availableVersion }}</span>
+        </button>
+
         <div ref="syntaxWrapRef" class="syntax-wrap">
           <button
             type="button"
@@ -158,6 +189,7 @@ onUnmounted(() => {
               <span class="pop-tag focus">重点</span>
               <code>【】方案评审 @周五 - 进行中</code>
             </div>
+            <div class="pop-tip">双击条目原地编辑 · 清空回车删除</div>
           </div>
         </div>
 
@@ -165,9 +197,10 @@ onUnmounted(() => {
           <Download :size="13.5" :stroke-width="1.8" />
           <span>导出</span>
         </button>
-        <button type="button" class="btn" @click="emit('openSettings')">
+        <button type="button" class="btn settings-btn" @click="emit('openSettings')">
           <Settings :size="13.5" :stroke-width="1.8" />
           <span>设置</span>
+          <span v-if="updater.status === 'available'" class="settings-dot" aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -261,9 +294,14 @@ onUnmounted(() => {
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-.stepper-btn:hover {
+.stepper-btn:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.stepper-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .period-label {
@@ -276,7 +314,8 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.today-btn.is-active {
+.today-btn.is-active,
+.weekend-toggle-btn.is-collapsed {
   background: var(--accent-soft);
   border-color: var(--accent-border);
   color: var(--accent);
@@ -319,6 +358,39 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.update-pill:hover {
+  background: #dbeafe;
+}
+
+.settings-btn {
+  position: relative;
+}
+
+.settings-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .syntax-wrap {
@@ -395,6 +467,13 @@ onUnmounted(() => {
 }
 
 .pop-extra {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.pop-tip {
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
   font-size: 11px;
   color: var(--text-tertiary);
 }

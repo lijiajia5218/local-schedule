@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
-import { Check, Columns2, Pencil, Target, Trash2 } from 'lucide-vue-next';
-import { formatWeeklyFocusLine, parseWeeklyFocusLine } from '@/core/timeParser';
+import { Check, Pencil, Target, Trash2 } from 'lucide-vue-next';
+import {
+  formatWeeklyFocusLine,
+  isBlankOrBarePrefix,
+  parseWeeklyFocusLine,
+} from '@/core/timeParser';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import type { WeeklyFocus } from '@/types/schedule';
 
@@ -13,109 +17,55 @@ const store = useScheduleStore();
 const items = computed(() => store.focusesForWeek(props.weekStart));
 
 const isAdding = ref(false);
-const addLineMode = ref<'line' | 'fields'>('line');
 const addLineDraft = ref('');
-const addLineAttempted = ref(false);
+const addLineError = ref('');
 const addLineInput = ref<HTMLInputElement | null>(null);
 
-const addTitle = ref('');
-const addTarget = ref('');
-const addNote = ref('');
-const addFieldsError = ref('');
-const addTitleInput = ref<HTMLInputElement | null>(null);
-
 const editingId = ref<string | null>(null);
-const editMode = ref<'line' | 'fields'>('line');
 const editLineDraft = ref('');
-const editLineAttempted = ref(false);
-const editTitle = ref('');
-const editTarget = ref('');
-const editNote = ref('');
-const editError = ref('');
+const editLineError = ref('');
+const editLineInput = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
 
-const addLineParsed = computed(() => {
-  if (!addLineDraft.value.trim()) return null;
-  return parseWeeklyFocusLine(addLineDraft.value);
-});
+function focusElAtEnd(el: HTMLInputElement | null): void {
+  if (!el) return;
+  el.focus();
+  const len = el.value.length;
+  el.setSelectionRange(len, len);
+}
 
-const addLineError = computed(() => {
-  const parsed = addLineParsed.value;
-  if (!parsed) return '';
-  if (!parsed.ok && (addLineAttempted.value || addLineDraft.value.trim().length > 0)) {
-    return parsed.error;
-  }
-  return '';
-});
-
-const editLineParsed = computed(() => {
-  if (!editLineDraft.value.trim()) return null;
-  return parseWeeklyFocusLine(editLineDraft.value);
-});
-
-const editLineError = computed(() => {
-  const parsed = editLineParsed.value;
-  if (!parsed) return editLineAttempted.value ? '周重点不能为空' : '';
-  if (!parsed.ok) return parsed.error;
-  return '';
-});
+function resolveEditInput(): HTMLInputElement | null {
+  const r = editLineInput.value;
+  return Array.isArray(r) ? (r[0] ?? null) : r;
+}
 
 async function openAddForm(): Promise<void> {
+  if (editingId.value) return;
   store.setActiveWeek(props.weekStart);
   isAdding.value = true;
-  addLineMode.value = 'line';
-  editingId.value = null;
-  addLineAttempted.value = false;
-  addFieldsError.value = '';
+  addLineDraft.value = '【】';
+  addLineError.value = '';
   await nextTick();
-  addLineInput.value?.focus();
+  focusElAtEnd(addLineInput.value);
 }
 
 function cancelAdd(): void {
   isAdding.value = false;
   addLineDraft.value = '';
-  addLineAttempted.value = false;
-  addTitle.value = '';
-  addTarget.value = '';
-  addNote.value = '';
-  addFieldsError.value = '';
+  addLineError.value = '';
 }
 
-async function toggleAddMode(): Promise<void> {
-  if (addLineMode.value === 'line') {
-    const parsed = addLineParsed.value;
-    if (parsed && parsed.ok) {
-      addTitle.value = parsed.title;
-      addTarget.value = parsed.targetText ?? '';
-      addNote.value = parsed.statusNote ?? '';
-    }
-    addLineMode.value = 'fields';
-    await nextTick();
-    addTitleInput.value?.focus();
-  } else {
-    if (addTitle.value.trim()) {
-      addLineDraft.value = formatWeeklyFocusLine({
-        title: addTitle.value.trim(),
-        targetText: addTarget.value.trim() || null,
-        statusNote: addNote.value.trim() || null,
-        isDone: false,
-      });
-    }
-    addLineMode.value = 'line';
-    await nextTick();
-    addLineInput.value?.focus();
+async function commitAddLine(keepOpen: boolean): Promise<void> {
+  if (isBlankOrBarePrefix(addLineDraft.value)) {
+    cancelAdd();
+    return;
   }
-}
 
-async function submitAddLine(keepOpen: boolean): Promise<boolean> {
-  if (!addLineDraft.value.trim()) {
-    if (!keepOpen) cancelAdd();
-    return true;
-  }
   const parsed = parseWeeklyFocusLine(addLineDraft.value);
   if (!parsed.ok) {
-    addLineAttempted.value = true;
-    return false;
+    addLineError.value = parsed.error;
+    return;
   }
+
   await store.saveFocus({
     weekStart: props.weekStart,
     title: parsed.title,
@@ -123,104 +73,56 @@ async function submitAddLine(keepOpen: boolean): Promise<boolean> {
     statusNote: parsed.statusNote,
     isDone: parsed.isDone,
   });
-  addLineDraft.value = '';
-  addLineAttempted.value = false;
-  if (!keepOpen) {
-    isAdding.value = false;
-  } else {
+
+  addLineError.value = '';
+  if (keepOpen) {
+    addLineDraft.value = '【】';
     await nextTick();
-    addLineInput.value?.focus();
+    focusElAtEnd(addLineInput.value);
+  } else {
+    cancelAdd();
   }
-  return true;
 }
 
 async function handleAddLineEnter(): Promise<void> {
-  if (!addLineDraft.value.trim()) {
-    cancelAdd();
-    return;
-  }
-  await submitAddLine(true);
+  await commitAddLine(true);
 }
 
 async function handleAddLineBlur(): Promise<void> {
-  if (!isAdding.value || addLineMode.value !== 'line') return;
-  if (!addLineDraft.value.trim()) {
-    cancelAdd();
-    return;
-  }
-  const parsed = parseWeeklyFocusLine(addLineDraft.value);
-  if (!parsed.ok) {
-    addLineAttempted.value = true;
-    return;
-  }
-  await submitAddLine(false);
+  if (!isAdding.value) return;
+  await commitAddLine(false);
 }
 
-async function submitAddFields(): Promise<void> {
-  const title = addTitle.value.trim();
-  if (!title) {
-    addFieldsError.value = '请输入重点待办名称';
-    return;
-  }
-  try {
-    await store.saveFocus({
-      weekStart: props.weekStart,
-      title,
-      targetText: addTarget.value.trim() || null,
-      statusNote: addNote.value.trim() || null,
-      isDone: false,
-    });
-    cancelAdd();
-  } catch (err) {
-    addFieldsError.value = err instanceof Error ? err.message : '保存失败';
-  }
-}
-
-function startEdit(item: WeeklyFocus): void {
+async function startEdit(item: WeeklyFocus): Promise<void> {
   store.setActiveWeek(props.weekStart);
-  isAdding.value = false;
+  cancelAdd();
   editingId.value = item.id;
-  editMode.value = 'line';
   editLineDraft.value = formatWeeklyFocusLine(item);
-  editLineAttempted.value = false;
-  editTitle.value = item.title;
-  editTarget.value = item.targetText ?? '';
-  editNote.value = item.statusNote ?? '';
-  editError.value = '';
+  editLineError.value = '';
+  await nextTick();
+  focusElAtEnd(resolveEditInput());
 }
 
 function cancelEdit(): void {
   editingId.value = null;
-  editError.value = '';
-  editLineAttempted.value = false;
+  editLineDraft.value = '';
+  editLineError.value = '';
 }
 
-function toggleEditMode(): void {
-  if (editMode.value === 'line') {
-    const parsed = editLineParsed.value;
-    if (parsed && parsed.ok) {
-      editTitle.value = parsed.title;
-      editTarget.value = parsed.targetText ?? '';
-      editNote.value = parsed.statusNote ?? '';
-    }
-    editMode.value = 'fields';
-  } else {
-    if (editTitle.value.trim()) {
-      editLineDraft.value = formatWeeklyFocusLine({
-        title: editTitle.value.trim(),
-        targetText: editTarget.value.trim() || null,
-        statusNote: editNote.value.trim() || null,
-        isDone: false,
-      });
-    }
-    editMode.value = 'line';
+async function handleEditEnter(item: WeeklyFocus): Promise<void> {
+  if (editingId.value !== item.id) return;
+  if (isBlankOrBarePrefix(editLineDraft.value)) {
+    cancelEdit();
+    store.requestDeleteFocus(item);
+    return;
   }
-}
 
-async function submitEditLine(item: WeeklyFocus): Promise<void> {
-  editLineAttempted.value = true;
   const parsed = parseWeeklyFocusLine(editLineDraft.value);
-  if (!parsed.ok) return;
+  if (!parsed.ok) {
+    editLineError.value = parsed.error;
+    return;
+  }
+
   await store.saveFocus({
     id: item.id,
     weekStart: item.weekStart,
@@ -233,26 +135,29 @@ async function submitEditLine(item: WeeklyFocus): Promise<void> {
   cancelEdit();
 }
 
-async function submitEditFields(item: WeeklyFocus): Promise<void> {
-  const title = editTitle.value.trim();
-  if (!title) {
-    editError.value = '任务名不能为空';
+async function handleEditBlur(item: WeeklyFocus): Promise<void> {
+  if (editingId.value !== item.id) return;
+  if (isBlankOrBarePrefix(editLineDraft.value)) {
+    cancelEdit();
     return;
   }
-  try {
-    await store.saveFocus({
-      id: item.id,
-      weekStart: item.weekStart,
-      title,
-      targetText: editTarget.value.trim() || null,
-      statusNote: editNote.value.trim() || null,
-      isDone: item.isDone,
-      sortOrder: item.sortOrder,
-    });
-    cancelEdit();
-  } catch (err) {
-    editError.value = err instanceof Error ? err.message : '更新失败';
+
+  const parsed = parseWeeklyFocusLine(editLineDraft.value);
+  if (!parsed.ok) {
+    editLineError.value = parsed.error;
+    return;
   }
+
+  await store.saveFocus({
+    id: item.id,
+    weekStart: item.weekStart,
+    title: parsed.title,
+    targetText: parsed.targetText,
+    statusNote: parsed.statusNote,
+    isDone: parsed.isDone,
+    sortOrder: item.sortOrder,
+  });
+  cancelEdit();
 }
 </script>
 
@@ -272,78 +177,21 @@ async function submitEditFields(item: WeeklyFocus): Promise<void> {
           :class="{ 'is-done': item.isDone, 'is-editing': editingId === item.id }"
           @click.stop
         >
-          <template v-if="editingId === item.id">
-            <div
-              v-if="editMode === 'line'"
-              class="focus-line-box"
+          <div v-if="editingId === item.id" class="focus-line-box">
+            <input
+              ref="editLineInput"
+              v-model="editLineDraft"
+              type="text"
+              class="doc-line-input"
+              :class="{ 'has-error': Boolean(editLineError) }"
+              placeholder="【】任务名 @目标时间 - 状态备注"
+              @input="editLineError = ''"
+              @keydown.enter.prevent="handleEditEnter(item)"
               @keydown.esc.stop="cancelEdit()"
-            >
-              <div class="focus-line-input-row">
-                <input
-                  v-model="editLineDraft"
-                  type="text"
-                  class="doc-line-input"
-                  :class="{ 'has-error': Boolean(editLineError) }"
-                  placeholder="【】任务名 @目标时间 - 状态备注"
-                  autofocus
-                  @keydown.enter.prevent="submitEditLine(item)"
-                />
-                <button
-                  type="button"
-                  class="mode-icon-btn"
-                  title="切换分字段编辑"
-                  @mousedown.prevent="toggleEditMode()"
-                >
-                  <Columns2 :size="12" />
-                </button>
-                <button type="button" class="btn btn-primary mini" @click="submitEditLine(item)">
-                  保存
-                </button>
-                <button type="button" class="btn mini" @click="cancelEdit()">取消</button>
-              </div>
-              <p v-if="editLineError" class="inline-error">{{ editLineError }}</p>
-            </div>
-
-            <div v-else class="focus-edit-row" @keydown.esc.stop="cancelEdit()">
-              <input
-                v-model="editTitle"
-                type="text"
-                class="field-input focus-edit-title"
-                placeholder="重点待办任务名（必填）"
-                autofocus
-                @keydown.enter.prevent="submitEditFields(item)"
-              />
-              <input
-                v-model="editTarget"
-                type="text"
-                class="field-input focus-edit-target"
-                placeholder="目标时间，如 本周五"
-                @keydown.enter.prevent="submitEditFields(item)"
-              />
-              <input
-                v-model="editNote"
-                type="text"
-                class="field-input focus-edit-note"
-                placeholder="状态备注，如 进行中"
-                @keydown.enter.prevent="submitEditFields(item)"
-              />
-              <div class="focus-edit-actions">
-                <button
-                  type="button"
-                  class="mode-icon-btn"
-                  title="切换单行语法"
-                  @mousedown.prevent="toggleEditMode()"
-                >
-                  <Columns2 :size="12" />
-                </button>
-                <button type="button" class="btn btn-primary" @click="submitEditFields(item)">
-                  保存
-                </button>
-                <button type="button" class="btn" @click="cancelEdit()">取消</button>
-              </div>
-              <p v-if="editError" class="inline-error">{{ editError }}</p>
-            </div>
-          </template>
+              @blur="handleEditBlur(item)"
+            />
+            <p v-if="editLineError" class="inline-error">{{ editLineError }}</p>
+          </div>
 
           <template v-else>
             <button
@@ -384,81 +232,21 @@ async function submitEditFields(item: WeeklyFocus): Promise<void> {
         </li>
       </ul>
 
-      <div v-if="isAdding" class="focus-add-wrap" @click.stop @keydown.esc.stop="cancelAdd()">
-        <div v-if="addLineMode === 'line'" class="focus-line-box">
-          <div class="focus-line-input-row">
-            <input
-              ref="addLineInput"
-              v-model="addLineDraft"
-              type="text"
-              class="doc-line-input"
-              :class="{ 'has-error': Boolean(addLineError) }"
-              placeholder="【】任务名 @目标时间 - 状态备注（如：【】方案评审 @周五 - 进行中）"
-              @keydown.enter.prevent="handleAddLineEnter()"
-              @blur="handleAddLineBlur()"
-            />
-            <button
-              type="button"
-              class="mode-icon-btn"
-              title="切换分字段录入"
-              @mousedown.prevent="toggleAddMode()"
-            >
-              <Columns2 :size="12" />
-            </button>
-          </div>
+      <div v-if="isAdding" class="focus-add-wrap" @click.stop>
+        <div class="focus-line-box">
+          <input
+            ref="addLineInput"
+            v-model="addLineDraft"
+            type="text"
+            class="doc-line-input"
+            :class="{ 'has-error': Boolean(addLineError) }"
+            placeholder="【】任务名 @目标时间 - 状态备注"
+            @input="addLineError = ''"
+            @keydown.enter.prevent="handleAddLineEnter()"
+            @keydown.esc.stop="cancelAdd()"
+            @blur="handleAddLineBlur()"
+          />
           <p v-if="addLineError" class="inline-error">{{ addLineError }}</p>
-          <div v-else-if="addLineParsed && addLineParsed.ok" class="syntax-preview">
-            <span class="preview-chip todo">{{ addLineParsed.isDone ? '已完成' : '待办' }}</span>
-            <span class="preview-title">{{ addLineParsed.title }}</span>
-            <span v-if="addLineParsed.targetText" class="target-chip">
-              {{ addLineParsed.targetText }}
-            </span>
-            <span v-if="addLineParsed.statusNote" class="status-note">
-              {{ addLineParsed.statusNote }}
-            </span>
-          </div>
-          <p v-else class="syntax-hint">
-            <code>【】标题</code> <code>@时间</code> <code>- 备注</code>
-          </p>
-        </div>
-
-        <div v-else class="focus-add-bar">
-          <input
-            ref="addTitleInput"
-            v-model="addTitle"
-            type="text"
-            class="field-input focus-edit-title"
-            :class="{ 'is-error': addFieldsError }"
-            placeholder="任务名（必填），回车保存"
-            @keydown.enter.prevent="submitAddFields()"
-          />
-          <input
-            v-model="addTarget"
-            type="text"
-            class="field-input focus-edit-target"
-            placeholder="目标时间（如 本周五）"
-            @keydown.enter.prevent="submitAddFields()"
-          />
-          <input
-            v-model="addNote"
-            type="text"
-            class="field-input focus-edit-note"
-            placeholder="状态备注（如 进行中）"
-            @keydown.enter.prevent="submitAddFields()"
-          />
-          <div class="focus-edit-actions">
-            <button
-              type="button"
-              class="mode-icon-btn"
-              title="切换单行语法"
-              @mousedown.prevent="toggleAddMode()"
-            >
-              <Columns2 :size="12" />
-            </button>
-            <button type="button" class="btn btn-primary" @click="submitAddFields()">添加</button>
-            <button type="button" class="btn" @click="cancelAdd()">取消</button>
-          </div>
-          <p v-if="addFieldsError" class="inline-error">{{ addFieldsError }}</p>
         </div>
       </div>
 
@@ -523,6 +311,10 @@ async function submitEditFields(item: WeeklyFocus): Promise<void> {
   border-radius: var(--radius-xs);
   cursor: default;
   transition: background-color 0.12s ease;
+}
+
+.focus-row.is-editing {
+  padding: 0;
 }
 
 .focus-row:hover:not(.is-editing) {
@@ -625,24 +417,17 @@ async function submitEditFields(item: WeeklyFocus): Promise<void> {
 
 .focus-line-box {
   width: 100%;
-  padding: 5px 8px;
+  padding: 4px 8px;
   border-radius: var(--radius-sm);
   background: var(--accent-soft);
   border: 1px solid var(--accent-border);
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.focus-line-input-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  gap: 2px;
 }
 
 .doc-line-input {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
   border: none;
   background: transparent;
   padding: 2px 0;
@@ -657,108 +442,6 @@ async function submitEditFields(item: WeeklyFocus): Promise<void> {
 
 .doc-line-input.has-error {
   color: var(--danger);
-}
-
-.mode-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: none;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-
-.mode-icon-btn:hover {
-  background: rgba(37, 99, 235, 0.12);
-  color: var(--accent);
-}
-
-.btn.mini {
-  height: 24px;
-  padding: 0 8px;
-  font-size: 11.5px;
-}
-
-.syntax-preview {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 11.5px;
-}
-
-.preview-chip.todo {
-  padding: 0 6px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--radius-pill);
-  background: var(--success-soft);
-  color: var(--success);
-  font-size: 10.5px;
-  font-weight: 600;
-}
-
-.preview-title {
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.syntax-hint {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
-.syntax-hint code {
-  font-family: var(--font-mono);
-  background: rgba(255, 255, 255, 0.75);
-  padding: 0 4px;
-  border-radius: 3px;
-  color: var(--text-secondary);
-}
-
-.focus-add-bar,
-.focus-edit-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 3px 0;
-}
-
-.focus-edit-title {
-  flex: 2 1 180px;
-  height: 28px;
-  font-size: 12.5px;
-}
-
-.focus-edit-target {
-  flex: 1 1 120px;
-  height: 28px;
-  font-size: 12.5px;
-}
-
-.focus-edit-note {
-  flex: 1 1 130px;
-  height: 28px;
-  font-size: 12.5px;
-}
-
-.focus-edit-actions {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.focus-edit-actions .btn {
-  height: 28px;
-  font-size: 12px;
 }
 
 .inline-error {
