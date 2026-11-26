@@ -60,9 +60,28 @@ pub fn upsert_task(
     end_time: String,
     title: String,
     is_done: bool,
+    sort_order: Option<i64>,
 ) -> Result<DailyTask, String> {
-    let store = state.lock().map_err(|_| "获取数据库锁失败".to_string())?;
-    store.upsert_task(id, task_date, start_time, end_time, title, is_done)
+    let mut store = state.lock().map_err(|_| "获取数据库锁失败".to_string())?;
+    store.upsert_task(
+        id,
+        task_date,
+        start_time,
+        end_time,
+        title,
+        is_done,
+        sort_order,
+    )
+}
+
+#[tauri::command]
+pub fn reorder_items(
+    state: StoreState<'_>,
+    kind: String,
+    ordered_ids: Vec<String>,
+) -> Result<(), String> {
+    let mut store = state.lock().map_err(|_| "获取数据库锁失败".to_string())?;
+    store.reorder_items(&kind, ordered_ids)
 }
 
 #[tauri::command]

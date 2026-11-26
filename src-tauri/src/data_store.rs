@@ -10,7 +10,7 @@ use crate::core_schedule::{
     DayBundle, WeekBundle, WeeklyFocus,
 };
 
-const CURRENT_SCHEMA_VERSION: i64 = 1;
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 pub struct DataStore {
     data_dir: PathBuf,
@@ -108,6 +108,7 @@ impl DataStore {
                         end_time TEXT NOT NULL,
                         title TEXT NOT NULL,
                         is_done INTEGER NOT NULL DEFAULT 0,
+                        sort_order INTEGER NOT NULL DEFAULT 0,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL
                     );
@@ -139,6 +140,75 @@ impl DataStore {
                     params![CURRENT_SCHEMA_VERSION],
                 )
                 .map_err(|e| format!("写入 schema_version 失败: {}", e))?;
+        } else if existing_version.unwrap_or(1) < 2 {
+            let mut has_sort_order = false;
+            {
+                let mut stmt = self
+                    .conn
+                    .prepare("PRAGMA table_info(daily_task)")
+                    .map_err(|e| format!("检查表结构失败: {}", e))?;
+                let cols = stmt
+                    .query_map([], |row| row.get::<_, String>(1))
+                    .map_err(|e| format!("读取表字段失败: {}", e))?;
+                for col in cols {
+                    if col.map_err(|e| format!("解析字段名失败: {}", e))? == "sort_order" {
+                        has_sort_order = true;
+                        break;
+                    }
+                }
+            }
+
+            if !has_sort_order {
+                self.conn
+                    .execute(
+                        "ALTER TABLE daily_task ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
+                        [],
+                    )
+                    .map_err(|e| format!("升级 daily_task.sort_order 列失败: {}", e))?;
+            }
+
+            // Backfill sort_order per task_date preserving chronological order
+            let ordered_rows: Vec<(String, String)> = {
+                let mut stmt = self
+                    .conn
+                    .prepare(
+                        "SELECT id, task_date FROM daily_task
+                         ORDER BY task_date ASC, start_time ASC, end_time ASC, created_at ASC",
+                    )
+                    .map_err(|e| format!("查询待办回填排序失败: {}", e))?;
+                let rows = stmt
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .map_err(|e| format!("读取待办排序数据失败: {}", e))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| format!("解析待办排序数据失败: {}", e))?;
+                rows
+            };
+
+            let tx = self
+                .conn
+                .transaction()
+                .map_err(|e| format!("开启迁移事务失败: {}", e))?;
+            let mut current_date = String::new();
+            let mut idx: i64 = 0;
+            for (task_id, task_date) in ordered_rows {
+                if task_date != current_date {
+                    current_date = task_date;
+                    idx = 0;
+                }
+                tx.execute(
+                    "UPDATE daily_task SET sort_order = ?1 WHERE id = ?2",
+                    params![idx, task_id],
+                )
+                .map_err(|e| format!("回填待办排序失败: {}", e))?;
+                idx += 1;
+            }
+            tx.execute(
+                "UPDATE schema_version SET version = ?1",
+                params![CURRENT_SCHEMA_VERSION],
+            )
+            .map_err(|e| format!("更新 schema_version 失败: {}", e))?;
+            tx.commit()
+                .map_err(|e| format!("提交迁移事务失败: {}", e))?;
         }
 
         Ok(())
@@ -254,10 +324,10 @@ impl DataStore {
         let mut task_stmt = self
             .conn
             .prepare(
-                "SELECT id, task_date, start_time, end_time, title, is_done, created_at, updated_at
+                "SELECT id, task_date, start_time, end_time, title, is_done, sort_order, created_at, updated_at
                  FROM daily_task
                  WHERE task_date >= ?1 AND task_date <= ?2
-                 ORDER BY task_date ASC, start_time ASC, end_time ASC, created_at ASC",
+                 ORDER BY task_date ASC, sort_order ASC, start_time ASC, end_time ASC, created_at ASC",
             )
             .map_err(|e| format!("查询周任务失败: {}", e))?;
 
@@ -296,10 +366,10 @@ impl DataStore {
         let mut task_stmt = self
             .conn
             .prepare(
-                "SELECT id, task_date, start_time, end_time, title, is_done, created_at, updated_at
+                "SELECT id, task_date, start_time, end_time, title, is_done, sort_order, created_at, updated_at
                  FROM daily_task
                  WHERE task_date = ?1
-                 ORDER BY start_time ASC, end_time ASC, created_at ASC",
+                 ORDER BY sort_order ASC, start_time ASC, end_time ASC, created_at ASC",
             )
             .map_err(|e| format!("查询日任务失败: {}", e))?;
 
@@ -430,13 +500,14 @@ impl DataStore {
     }
 
     pub fn upsert_task(
-        &self,
+        &mut self,
         id: Option<String>,
         task_date: String,
         start_time_raw: String,
         end_time_raw: String,
         title: String,
         is_done: bool,
+        sort_order: Option<i64>,
     ) -> Result<DailyTask, String> {
         let trimmed_title = title.trim().to_string();
         if trimmed_title.is_empty() {
@@ -451,29 +522,83 @@ impl DataStore {
 
         let now = Utc::now().to_rfc3339();
         let item_id = id.unwrap_or_else(|| Uuid::new_v4().to_string());
-        let existing_created: Option<String> = self
+        let existing: Option<(String, i64)> = self
             .conn
             .query_row(
-                "SELECT created_at FROM daily_task WHERE id = ?1",
+                "SELECT created_at, sort_order FROM daily_task WHERE id = ?1",
                 params![&item_id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
             .map_err(|e| format!("查询日任务失败: {}", e))?;
 
-        let created_at = existing_created.unwrap_or_else(|| now.clone());
+        let (created_at, is_new) = match &existing {
+            Some((c, _)) => (c.clone(), false),
+            None => (now.clone(), true),
+        };
         let done_int: i64 = if is_done { 1 } else { 0 };
+
+        let order_val = if let Some(explicit) = sort_order {
+            explicit
+        } else if let Some((_, existing_order)) = existing {
+            existing_order
+        } else {
+            let siblings: Vec<(String, String)> = {
+                let mut stmt = self
+                    .conn
+                    .prepare(
+                        "SELECT id, start_time FROM daily_task
+                         WHERE task_date = ?1
+                         ORDER BY sort_order ASC, start_time ASC, end_time ASC, created_at ASC",
+                    )
+                    .map_err(|e| format!("查询当日待办顺序失败: {}", e))?;
+                let rows = stmt
+                    .query_map(params![&task_date], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .map_err(|e| format!("读取当日待办顺序失败: {}", e))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| format!("解析当日待办顺序失败: {}", e))?;
+                rows
+            };
+
+            let insert_pos = siblings
+                .iter()
+                .position(|(_, st)| st.as_str() > start_time.as_str())
+                .unwrap_or(siblings.len());
+
+            if is_new && insert_pos < siblings.len() {
+                let tx = self
+                    .conn
+                    .transaction()
+                    .map_err(|e| format!("开启待办排序事务失败: {}", e))?;
+                for (i, (sib_id, _)) in siblings.iter().enumerate() {
+                    let target_order = if i >= insert_pos {
+                        (i + 1) as i64
+                    } else {
+                        i as i64
+                    };
+                    tx.execute(
+                        "UPDATE daily_task SET sort_order = ?1 WHERE id = ?2",
+                        params![target_order, sib_id],
+                    )
+                    .map_err(|e| format!("调整待办顺序失败: {}", e))?;
+                }
+                tx.commit()
+                    .map_err(|e| format!("提交待办排序事务失败: {}", e))?;
+            }
+            insert_pos as i64
+        };
 
         self.conn
             .execute(
-                "INSERT INTO daily_task (id, task_date, start_time, end_time, title, is_done, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "INSERT INTO daily_task (id, task_date, start_time, end_time, title, is_done, sort_order, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(id) DO UPDATE SET
                     task_date = excluded.task_date,
                     start_time = excluded.start_time,
                     end_time = excluded.end_time,
                     title = excluded.title,
                     is_done = excluded.is_done,
+                    sort_order = excluded.sort_order,
                     updated_at = excluded.updated_at",
                 params![
                     &item_id,
@@ -482,6 +607,7 @@ impl DataStore {
                     &end_time,
                     &trimmed_title,
                     done_int,
+                    order_val,
                     &created_at,
                     &now
                 ],
@@ -495,9 +621,37 @@ impl DataStore {
             end_time,
             title: trimmed_title,
             is_done,
+            sort_order: order_val,
             created_at,
             updated_at: now,
         })
+    }
+
+    pub fn reorder_items(&mut self, kind: &str, ordered_ids: Vec<String>) -> Result<(), String> {
+        let table = match kind {
+            "focus" => "weekly_focus",
+            "task" => "daily_task",
+            "memo" => "daily_memo",
+            _ => return Err(format!("不支持的排序类型: {}", kind)),
+        };
+
+        let now = Utc::now().to_rfc3339();
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|e| format!("开启拖拽排序事务失败: {}", e))?;
+
+        let sql = format!(
+            "UPDATE {} SET sort_order = ?1, updated_at = ?2 WHERE id = ?3",
+            table
+        );
+        for (idx, item_id) in ordered_ids.iter().enumerate() {
+            tx.execute(&sql, params![idx as i64, &now, item_id])
+                .map_err(|e| format!("更新排序失败: {}", e))?;
+        }
+        tx.commit()
+            .map_err(|e| format!("提交拖拽排序事务失败: {}", e))?;
+        Ok(())
     }
 
     pub fn delete_task(&self, id: &str) -> Result<(), String> {
@@ -599,8 +753,8 @@ impl DataStore {
         let mut t_stmt = self
             .conn
             .prepare(
-                "SELECT id, task_date, start_time, end_time, title, is_done, created_at, updated_at
-                 FROM daily_task ORDER BY task_date ASC, start_time ASC",
+                "SELECT id, task_date, start_time, end_time, title, is_done, sort_order, created_at, updated_at
+                 FROM daily_task ORDER BY task_date ASC, sort_order ASC, start_time ASC",
             )
             .map_err(|e| format!("导出日任务失败: {}", e))?;
         let daily_task = t_stmt
@@ -665,8 +819,8 @@ impl DataStore {
 
         for item in payload.daily_task {
             tx.execute(
-                "INSERT INTO daily_task (id, task_date, start_time, end_time, title, is_done, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT INTO daily_task (id, task_date, start_time, end_time, title, is_done, sort_order, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     item.id,
                     item.task_date,
@@ -674,6 +828,7 @@ impl DataStore {
                     item.end_time,
                     item.title,
                     if item.is_done { 1 } else { 0 },
+                    item.sort_order,
                     item.created_at,
                     item.updated_at
                 ],
@@ -752,8 +907,9 @@ fn map_task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DailyTask> {
         end_time: row.get(3)?,
         title: row.get(4)?,
         is_done: done_int != 0,
-        created_at: row.get(6)?,
-        updated_at: row.get(7)?,
+        sort_order: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
     })
 }
 
@@ -800,18 +956,19 @@ mod tests {
             .unwrap();
         assert_eq!(focus.week_start, "2026-11-23");
 
-        // Tasks added out of order on Sunday (weekend) should return sorted by start_time
-        store
+        // Tasks added out of order on Sunday (weekend) should return sorted by start_time initially
+        let t1 = store
             .upsert_task(
                 None,
                 "2026-11-29".to_string(),
-                "19:30".to_string(),
-                "20:30".to_string(),
+                "19.30".to_string(),
+                "20.30".to_string(),
                 "周总结".to_string(),
                 false,
+                None,
             )
             .unwrap();
-        store
+        let t2 = store
             .upsert_task(
                 None,
                 "2026-11-29".to_string(),
@@ -819,9 +976,10 @@ mod tests {
                 "10".to_string(),
                 "晨读".to_string(),
                 true,
+                None,
             )
             .unwrap();
-        store
+        let m1 = store
             .upsert_memo(None, "2026-11-28".to_string(), "周六备忘".to_string(), None)
             .unwrap();
 
@@ -833,6 +991,25 @@ mod tests {
         assert_eq!(week.tasks[1].start_time, "19:30");
         assert_eq!(week.memos.len(), 1);
 
+        // Drag-reorder tasks persists custom order over chronological start_time
+        store
+            .reorder_items("task", vec![t1.id.clone(), t2.id.clone()])
+            .unwrap();
+        let reordered_week = store.get_week("2026-11-29").unwrap();
+        assert_eq!(reordered_week.tasks[0].id, t1.id);
+        assert_eq!(reordered_week.tasks[1].id, t2.id);
+
+        // Reorder memos & focuses
+        let m2 = store
+            .upsert_memo(None, "2026-11-28".to_string(), "周六备忘2".to_string(), None)
+            .unwrap();
+        store
+            .reorder_items("memo", vec![m2.id.clone(), m1.id.clone()])
+            .unwrap();
+        let reordered_day = store.get_day("2026-11-28").unwrap();
+        assert_eq!(reordered_day.memos[0].id, m2.id);
+        assert_eq!(reordered_day.memos[1].id, m1.id);
+
         // Export & transactional restore
         let backup = store.export_all().unwrap();
         store.delete_focus(&focus.id).unwrap();
@@ -840,6 +1017,72 @@ mod tests {
 
         store.restore_all(backup).unwrap();
         assert_eq!(store.get_week("2026-11-23").unwrap().focuses.len(), 1);
+        assert_eq!(store.get_week("2026-11-29").unwrap().tasks[0].id, t1.id);
+
+        drop(store);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_v1_to_v2_migration_backfills_task_sort_order() {
+        let dir = std::env::temp_dir().join(format!(
+            "local_schedule_mig_{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("data.sqlite");
+
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "
+                CREATE TABLE schema_version (version INTEGER NOT NULL);
+                INSERT INTO schema_version (version) VALUES (1);
+                CREATE TABLE weekly_focus (
+                    id TEXT PRIMARY KEY,
+                    week_start TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    target_text TEXT,
+                    status_note TEXT,
+                    is_done INTEGER NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE daily_task (
+                    id TEXT PRIMARY KEY,
+                    task_date TEXT NOT NULL,
+                    start_time TEXT NOT NULL,
+                    end_time TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    is_done INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE daily_memo (
+                    id TEXT PRIMARY KEY,
+                    memo_date TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO daily_task VALUES ('late', '2026-11-25', '15:00', '16:00', '下午', 0, '2026-11-25T01:00:00Z', '2026-11-25T01:00:00Z');
+                INSERT INTO daily_task VALUES ('early', '2026-11-25', '09:00', '10:00', '上午', 0, '2026-11-25T02:00:00Z', '2026-11-25T02:00:00Z');
+                ",
+            )
+            .unwrap();
+        }
+
+        let store = DataStore::open_at_dir(dir.clone()).unwrap();
+        assert_eq!(store.get_settings().unwrap().schema_version, 2);
+        let day = store.get_day("2026-11-25").unwrap();
+        assert_eq!(day.tasks.len(), 2);
+        assert_eq!(day.tasks[0].id, "early");
+        assert_eq!(day.tasks[0].sort_order, 0);
+        assert_eq!(day.tasks[1].id, "late");
+        assert_eq!(day.tasks[1].sort_order, 1);
 
         drop(store);
         let _ = fs::remove_dir_all(dir);

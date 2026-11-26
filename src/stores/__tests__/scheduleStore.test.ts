@@ -188,6 +188,58 @@ describe('scheduleStore MVP flows', () => {
     expect(store.tasksForDate(friday).some((t) => t.id === tempTask.id)).toBe(true);
   });
 
+  it('persists custom drag-and-drop reorder across focuses, tasks, and memos', async () => {
+    const store = useScheduleStore();
+    await store.init();
+
+    const current = weekStartOf(todayStr());
+    const wed = addDays(current, 2);
+
+    const tEarly = await store.saveTask({
+      taskDate: wed,
+      startTime: '08.30',
+      endTime: '09.30',
+      title: '早间沟通',
+      isDone: false,
+    });
+    const tLate = await store.saveTask({
+      taskDate: wed,
+      startTime: '17.00',
+      endTime: '18.00',
+      title: '晚间总结',
+      isDone: false,
+    });
+    expect(tEarly.startTime).toBe('08:30');
+
+    const beforeIds = store.tasksForDate(wed).map((t) => t.id);
+    const reversedTaskIds = [tLate.id, ...beforeIds.filter((id) => id !== tLate.id)];
+    await store.reorderTasks(wed, reversedTaskIds);
+    expect(store.tasksForDate(wed)[0].id).toBe(tLate.id);
+
+    // Reload from persistence and verify custom order remains
+    await store.loadWeek(current);
+    expect(store.tasksForDate(wed)[0].id).toBe(tLate.id);
+
+    // Reorder memos
+    const m1 = await store.saveMemo({ memoDate: wed, content: '备忘一' });
+    const m2 = await store.saveMemo({ memoDate: wed, content: '备忘二' });
+    const memoIds = store.memosForDate(wed).map((m) => m.id);
+    expect(memoIds).toContain(m1.id);
+    expect(memoIds).toContain(m2.id);
+    await store.reorderMemos(wed, [m2.id, m1.id]);
+    await store.loadWeek(current);
+    expect(store.memosForDate(wed).slice(0, 2).map((m) => m.id)).toEqual([m2.id, m1.id]);
+
+    // Reorder focuses
+    const focusIds = store.focusesForWeek(current).map((f) => f.id);
+    if (focusIds.length >= 2) {
+      const rotated = [...focusIds.slice(1), focusIds[0]];
+      await store.reorderFocuses(current, rotated);
+      await store.loadWeek(current);
+      expect(store.focusesForWeek(current).map((f) => f.id)).toEqual(rotated);
+    }
+  });
+
   it('collapses weekends by default, supports per-week toggle, and auto-expands on weekends', async () => {
     // 2026-11-25 is Wednesday -> hideWeekends defaults to true, current week collapsed
     vi.setSystemTime(new Date(2026, 10, 25, 10, 0, 0));

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
-import { Check, Pencil, Target, Trash2 } from 'lucide-vue-next';
+import { Check, Target, Trash2 } from 'lucide-vue-next';
+import { useDragReorder } from '@/composables/useDragReorder';
 import {
   formatWeeklyFocusLine,
   isBlankOrBarePrefix,
@@ -15,6 +16,7 @@ const props = defineProps<{
 
 const store = useScheduleStore();
 const items = computed(() => store.focusesForWeek(props.weekStart));
+const focusListRef = ref<HTMLUListElement | null>(null);
 
 const isAdding = ref(false);
 const addLineDraft = ref('');
@@ -25,6 +27,14 @@ const editingId = ref<string | null>(null);
 const editLineDraft = ref('');
 const editLineError = ref('');
 const editLineInput = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
+
+const { draggingId, dropIndicator, onRowPointerDown } = useDragReorder({
+  getItemIds: () => items.value.map((f) => f.id),
+  getRowElements: () =>
+    Array.from(focusListRef.value?.querySelectorAll<HTMLElement>('[data-drag-id]') ?? []),
+  onReorder: (orderedIds) => store.reorderFocuses(props.weekStart, orderedIds),
+  isDisabled: () => editingId.value !== null,
+});
 
 function focusElAtEnd(el: HTMLInputElement | null): void {
   if (!el) return;
@@ -169,15 +179,23 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
     </div>
 
     <div class="focus-content">
-      <ul v-if="items.length > 0" class="focus-list">
+      <ul v-if="items.length > 0" ref="focusListRef" class="focus-list">
         <li
           v-for="item in items"
           :key="item.id"
+          :data-drag-id="item.id"
           class="focus-row"
-          :class="{ 'is-done': item.isDone, 'is-editing': editingId === item.id }"
+          :class="{
+            'is-done': item.isDone,
+            'is-editing': editingId === item.id,
+            'is-dragging': draggingId === item.id,
+            'drag-over-before': dropIndicator?.id === item.id && dropIndicator.position === 'before',
+            'drag-over-after': dropIndicator?.id === item.id && dropIndicator.position === 'after',
+          }"
+          @pointerdown="onRowPointerDown(item.id, $event)"
           @click.stop
         >
-          <div v-if="editingId === item.id" class="focus-line-box">
+          <div v-if="editingId === item.id" class="focus-line-box" data-no-drag>
             <input
               ref="editLineInput"
               v-model="editLineDraft"
@@ -198,10 +216,13 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
               type="button"
               class="check-box"
               :class="{ checked: item.isDone }"
+              :title="item.isDone ? '取消完成' : '完成'"
               :aria-label="item.isDone ? '取消完成' : '标记完成'"
               @click.stop="store.toggleFocusDone(item)"
+              @dblclick.stop
             >
               <Check v-if="item.isDone" :size="10" :stroke-width="3" />
+              <Check v-else :size="9" :stroke-width="2.5" class="check-preview" />
             </button>
 
             <div class="focus-main" @dblclick.stop="startEdit(item)">
@@ -210,19 +231,22 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
               <span v-if="item.statusNote" class="status-note">{{ item.statusNote }}</span>
             </div>
 
-            <div class="row-actions">
+            <div class="row-actions" @dblclick.stop>
               <button
                 type="button"
-                class="icon-btn"
-                title="编辑"
-                @click.stop="startEdit(item)"
+                class="icon-btn check-action"
+                :class="{ active: item.isDone }"
+                :title="item.isDone ? '取消完成' : '完成'"
+                :aria-label="item.isDone ? '取消完成' : '完成'"
+                @click.stop="store.toggleFocusDone(item)"
               >
-                <Pencil :size="12" />
+                <Check :size="12" :stroke-width="2.4" />
               </button>
               <button
                 type="button"
                 class="icon-btn danger"
                 title="删除"
+                aria-label="删除"
                 @click.stop="store.requestDeleteFocus(item)"
               >
                 <Trash2 :size="12" />
@@ -309,12 +333,17 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
   min-height: 24px;
   padding: 2px 5px;
   border-radius: var(--radius-xs);
-  cursor: default;
+  cursor: grab;
   transition: background-color 0.12s ease;
+}
+
+.focus-row:active {
+  cursor: grabbing;
 }
 
 .focus-row.is-editing {
   padding: 0;
+  cursor: default;
 }
 
 .focus-row:hover:not(.is-editing) {
@@ -374,6 +403,7 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
 .focus-row.is-done .target-chip {
   background: var(--bg-muted);
   color: var(--text-tertiary);
+  text-decoration: line-through;
 }
 
 .status-note {
@@ -390,6 +420,7 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
 .focus-row.is-done .status-note {
   background: var(--bg-muted);
   color: var(--text-tertiary);
+  text-decoration: line-through;
 }
 
 .focus-ghost-line {

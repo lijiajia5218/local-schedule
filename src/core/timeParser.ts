@@ -44,10 +44,10 @@ export function extractTodoPrefix(raw: string): ParsedTodoPrefix {
 }
 
 /**
- * Parses `H`, `HH`, `H:MM`, `HH:MM` (also normalizing full-width `：`) into `HH:MM`.
+ * Parses `H`, `HH`, `H:MM`, `HH:MM` (also supporting `：`, `.`, and `。` like `10.30`) into `HH:MM`.
  */
 export function parseTimePart(raw: string): SingleTimeResult {
-  const trimmed = raw.trim().replace(/：/g, ':');
+  const trimmed = raw.trim().replace(/[：.。]/g, ':');
   if (!trimmed) {
     return { ok: false, error: '时间不能为空' };
   }

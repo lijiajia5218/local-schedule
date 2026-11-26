@@ -19,6 +19,7 @@ export interface DailyTask {
   endTime: string;
   title: string;
   isDone: boolean;
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
 }

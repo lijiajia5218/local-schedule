@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
-import { Pencil, Trash2 } from 'lucide-vue-next';
+import { Trash2 } from 'lucide-vue-next';
+import { useDragReorder } from '@/composables/useDragReorder';
 import type { WeekDayMeta } from '@/core/dateUtils';
 import {
   classifyQuickLine,
@@ -19,6 +20,7 @@ const props = defineProps<{
 const store = useScheduleStore();
 
 const memos = computed(() => store.memosForDate(props.day.date));
+const memoListRef = ref<HTMLUListElement | null>(null);
 
 const isQuickTyping = ref(false);
 const quickDraft = ref('');
@@ -29,6 +31,14 @@ const editingMemoId = ref<string | null>(null);
 const editMemoDraft = ref('');
 const editMemoError = ref('');
 const editInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
+
+const { draggingId, dropIndicator, onRowPointerDown } = useDragReorder({
+  getItemIds: () => memos.value.map((m) => m.id),
+  getRowElements: () =>
+    Array.from(memoListRef.value?.querySelectorAll<HTMLElement>('[data-drag-id]') ?? []),
+  onReorder: (orderedIds) => store.reorderMemos(props.day.date, orderedIds),
+  isDisabled: () => editingMemoId.value !== null,
+});
 
 function focusElAtEnd(el: HTMLInputElement | null): void {
   if (!el) return;
@@ -185,15 +195,22 @@ async function handleEditBlur(memo: DailyMemo): Promise<void> {
     :style="{ gridColumn: colIndex + 1, gridRow: 3 }"
     @click="handleBlankClick()"
   >
-    <ul v-if="memos.length > 0" class="memo-list">
+    <ul v-if="memos.length > 0" ref="memoListRef" class="memo-list">
       <li
         v-for="memo in memos"
         :key="memo.id"
+        :data-drag-id="memo.id"
         class="memo-row"
-        :class="{ 'is-editing': editingMemoId === memo.id }"
+        :class="{
+          'is-editing': editingMemoId === memo.id,
+          'is-dragging': draggingId === memo.id,
+          'drag-over-before': dropIndicator?.id === memo.id && dropIndicator.position === 'before',
+          'drag-over-after': dropIndicator?.id === memo.id && dropIndicator.position === 'after',
+        }"
+        @pointerdown="onRowPointerDown(memo.id, $event)"
         @click.stop
       >
-        <div v-if="editingMemoId === memo.id" class="doc-input-wrap inline-edit">
+        <div v-if="editingMemoId === memo.id" class="doc-input-wrap inline-edit" data-no-drag>
           <input
             ref="editInputRef"
             v-model="editMemoDraft"
@@ -214,19 +231,12 @@ async function handleEditBlur(memo: DailyMemo): Promise<void> {
           <span class="memo-text" @dblclick.stop="startEditMemo(memo)">
             {{ memo.content }}
           </span>
-          <div class="item-actions">
-            <button
-              type="button"
-              class="icon-btn"
-              title="编辑"
-              @click.stop="startEditMemo(memo)"
-            >
-              <Pencil :size="11" />
-            </button>
+          <div class="item-actions" @dblclick.stop>
             <button
               type="button"
               class="icon-btn danger"
               title="删除"
+              aria-label="删除"
               @click.stop="store.requestDeleteMemo(memo)"
             >
               <Trash2 :size="11" />
@@ -302,12 +312,17 @@ async function handleEditBlur(memo: DailyMemo): Promise<void> {
   font-size: 11.5px;
   line-height: 1.4;
   color: var(--text-secondary);
-  cursor: default;
+  cursor: grab;
   transition: background-color 0.12s ease;
+}
+
+.memo-row:active {
+  cursor: grabbing;
 }
 
 .memo-row.is-editing {
   padding: 0;
+  cursor: default;
 }
 
 .memo-row:hover:not(.is-editing) {

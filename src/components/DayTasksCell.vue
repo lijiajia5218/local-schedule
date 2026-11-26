@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
-import { Check, Pencil, Trash2 } from 'lucide-vue-next';
+import { Check, Trash2 } from 'lucide-vue-next';
+import { useDragReorder } from '@/composables/useDragReorder';
 import type { WeekDayMeta } from '@/core/dateUtils';
 import {
   classifyQuickLine,
@@ -21,6 +22,7 @@ const props = defineProps<{
 const store = useScheduleStore();
 
 const tasks = computed(() => store.tasksForDate(props.day.date));
+const taskListRef = ref<HTMLUListElement | null>(null);
 
 const isQuickTyping = ref(false);
 const quickDraft = ref('');
@@ -31,6 +33,14 @@ const editingTaskId = ref<string | null>(null);
 const editDraft = ref('');
 const editError = ref('');
 const editInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
+
+const { draggingId, dropIndicator, onRowPointerDown } = useDragReorder({
+  getItemIds: () => tasks.value.map((t) => t.id),
+  getRowElements: () =>
+    Array.from(taskListRef.value?.querySelectorAll<HTMLElement>('[data-drag-id]') ?? []),
+  onReorder: (orderedIds) => store.reorderTasks(props.day.date, orderedIds),
+  isDisabled: () => editingTaskId.value !== null,
+});
 
 function focusElAtEnd(el: HTMLInputElement | null): void {
   if (!el) return;
@@ -150,6 +160,7 @@ async function handleEditEnter(task: DailyTask): Promise<void> {
     endTime: parsed.endTime,
     title: parsed.title,
     isDone: parsed.isDone,
+    sortOrder: task.sortOrder,
   });
   cancelEditTask();
 }
@@ -174,6 +185,7 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
     endTime: parsed.endTime,
     title: parsed.title,
     isDone: parsed.isDone,
+    sortOrder: task.sortOrder,
   });
   cancelEditTask();
 }
@@ -190,15 +202,23 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
     :style="{ gridColumn: colIndex + 1, gridRow: 2 }"
     @click="handleBlankClick()"
   >
-    <ul v-if="tasks.length > 0" class="task-list">
+    <ul v-if="tasks.length > 0" ref="taskListRef" class="task-list">
       <li
         v-for="task in tasks"
         :key="task.id"
+        :data-drag-id="task.id"
         class="task-card"
-        :class="{ 'is-done': task.isDone, 'is-editing': editingTaskId === task.id }"
+        :class="{
+          'is-done': task.isDone,
+          'is-editing': editingTaskId === task.id,
+          'is-dragging': draggingId === task.id,
+          'drag-over-before': dropIndicator?.id === task.id && dropIndicator.position === 'before',
+          'drag-over-after': dropIndicator?.id === task.id && dropIndicator.position === 'after',
+        }"
+        @pointerdown="onRowPointerDown(task.id, $event)"
         @click.stop
       >
-        <div v-if="editingTaskId === task.id" class="doc-input-wrap inline-edit">
+        <div v-if="editingTaskId === task.id" class="doc-input-wrap inline-edit" data-no-drag>
           <input
             ref="editInputRef"
             v-model="editDraft"
@@ -219,10 +239,13 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
             type="button"
             class="check-box task-check"
             :class="{ checked: task.isDone }"
+            :title="task.isDone ? '取消完成' : '完成'"
             :aria-label="task.isDone ? '取消完成' : '标记完成'"
             @click.stop="store.toggleTaskDone(task)"
+            @dblclick.stop
           >
             <Check v-if="task.isDone" :size="10" :stroke-width="3" />
+            <Check v-else :size="9" :stroke-width="2.5" class="check-preview" />
           </button>
 
           <div class="task-content" @dblclick.stop="startEditTask(task)">
@@ -232,19 +255,22 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
             <div class="task-title">{{ task.title }}</div>
           </div>
 
-          <div class="item-actions">
+          <div class="item-actions" @dblclick.stop>
             <button
               type="button"
-              class="icon-btn"
-              title="编辑"
-              @click.stop="startEditTask(task)"
+              class="icon-btn check-action"
+              :class="{ active: task.isDone }"
+              :title="task.isDone ? '取消完成' : '完成'"
+              :aria-label="task.isDone ? '取消完成' : '完成'"
+              @click.stop="store.toggleTaskDone(task)"
             >
-              <Pencil :size="11" />
+              <Check :size="11" :stroke-width="2.4" />
             </button>
             <button
               type="button"
               class="icon-btn danger"
               title="删除"
+              aria-label="删除"
               @click.stop="store.requestDeleteTask(task)"
             >
               <Trash2 :size="11" />
@@ -319,11 +345,16 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
   padding: 4px 5px;
   border-radius: var(--radius-xs);
   transition: background-color 0.12s ease;
-  cursor: default;
+  cursor: grab;
+}
+
+.task-card:active {
+  cursor: grabbing;
 }
 
 .task-card.is-editing {
   padding: 0;
+  cursor: default;
 }
 
 .task-card:hover:not(.is-editing) {
@@ -351,6 +382,7 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
 
 .task-card.is-done .task-time {
   color: var(--text-tertiary);
+  text-decoration: line-through;
 }
 
 .task-title {

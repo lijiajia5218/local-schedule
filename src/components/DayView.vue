@@ -4,10 +4,10 @@ import {
   ArrowLeft,
   Check,
   Clock,
-  Pencil,
   StickyNote,
   Trash2,
 } from 'lucide-vue-next';
+import { useDragReorder } from '@/composables/useDragReorder';
 import { formatFullDayLabel, isWeekendDate, todayStr } from '@/core/dateUtils';
 import {
   classifyQuickLine,
@@ -29,6 +29,9 @@ const tasks = computed(() => store.selectedDayTasks);
 const memos = computed(() => store.selectedDayMemos);
 const doneCount = computed(() => tasks.value.filter((t) => t.isDone).length);
 
+const dayTaskListRef = ref<HTMLUListElement | null>(null);
+const dayMemoListRef = ref<HTMLUListElement | null>(null);
+
 const isTaskInlineOpen = ref(false);
 const taskInlineDraft = ref('');
 const taskInlineError = ref('');
@@ -48,6 +51,30 @@ const editingMemoId = ref<string | null>(null);
 const editMemoText = ref('');
 const editMemoError = ref('');
 const editMemoRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
+
+const {
+  draggingId: draggingTaskId,
+  dropIndicator: taskDropIndicator,
+  onRowPointerDown: onTaskPointerDown,
+} = useDragReorder({
+  getItemIds: () => tasks.value.map((t) => t.id),
+  getRowElements: () =>
+    Array.from(dayTaskListRef.value?.querySelectorAll<HTMLElement>('[data-drag-id]') ?? []),
+  onReorder: (orderedIds) => store.reorderTasks(store.selectedDate, orderedIds),
+  isDisabled: () => editingTaskId.value !== null,
+});
+
+const {
+  draggingId: draggingMemoId,
+  dropIndicator: memoDropIndicator,
+  onRowPointerDown: onMemoPointerDown,
+} = useDragReorder({
+  getItemIds: () => memos.value.map((m) => m.id),
+  getRowElements: () =>
+    Array.from(dayMemoListRef.value?.querySelectorAll<HTMLElement>('[data-drag-id]') ?? []),
+  onReorder: (orderedIds) => store.reorderMemos(store.selectedDate, orderedIds),
+  isDisabled: () => editingMemoId.value !== null,
+});
 
 function focusElAtEnd(el: HTMLInputElement | null): void {
   if (!el) return;
@@ -150,6 +177,7 @@ async function handleEditTaskEnter(task: DailyTask): Promise<void> {
     endTime: parsed.endTime,
     title: parsed.title,
     isDone: parsed.isDone,
+    sortOrder: task.sortOrder,
   });
   cancelEditTask();
 }
@@ -174,6 +202,7 @@ async function handleEditTaskBlur(task: DailyTask): Promise<void> {
     endTime: parsed.endTime,
     title: parsed.title,
     isDone: parsed.isDone,
+    sortOrder: task.sortOrder,
   });
   cancelEditTask();
 }
@@ -339,15 +368,23 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
           <span v-if="tasks.length > 0" class="memo-count tabular-nums">{{ tasks.length }} 项</span>
         </div>
 
-        <ul v-if="tasks.length > 0" class="day-task-list">
+        <ul v-if="tasks.length > 0" ref="dayTaskListRef" class="day-task-list">
           <li
             v-for="task in tasks"
             :key="task.id"
+            :data-drag-id="task.id"
             class="day-task-row"
-            :class="{ 'is-done': task.isDone, 'is-editing': editingTaskId === task.id }"
+            :class="{
+              'is-done': task.isDone,
+              'is-editing': editingTaskId === task.id,
+              'is-dragging': draggingTaskId === task.id,
+              'drag-over-before': taskDropIndicator?.id === task.id && taskDropIndicator.position === 'before',
+              'drag-over-after': taskDropIndicator?.id === task.id && taskDropIndicator.position === 'after',
+            }"
+            @pointerdown="onTaskPointerDown(task.id, $event)"
             @click.stop
           >
-            <div v-if="editingTaskId === task.id" class="doc-compose full-edit-wrap">
+            <div v-if="editingTaskId === task.id" class="doc-compose full-edit-wrap" data-no-drag>
               <input
                 ref="editTaskRef"
                 v-model="editTaskDraft"
@@ -368,33 +405,41 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
                 type="button"
                 class="check-box"
                 :class="{ checked: task.isDone }"
+                :title="task.isDone ? '取消完成' : '完成'"
                 :aria-label="task.isDone ? '取消完成' : '标记完成'"
                 @click.stop="store.toggleTaskDone(task)"
+                @dblclick.stop
               >
                 <Check v-if="task.isDone" :size="11" :stroke-width="3" />
+                <Check v-else :size="10" :stroke-width="2.5" class="check-preview" />
               </button>
 
-              <span class="time-badge tabular-nums">
-                {{ task.startTime }} - {{ task.endTime }}
-              </span>
+              <div class="day-task-main" @dblclick.stop="startEditTask(task)">
+                <span class="time-badge tabular-nums">
+                  {{ task.startTime }} - {{ task.endTime }}
+                </span>
 
-              <span class="task-name" @dblclick.stop="startEditTask(task)">
-                {{ task.title }}
-              </span>
+                <span class="task-name">
+                  {{ task.title }}
+                </span>
+              </div>
 
-              <div class="row-actions">
+              <div class="row-actions" @dblclick.stop>
                 <button
                   type="button"
-                  class="icon-btn"
-                  title="编辑"
-                  @click.stop="startEditTask(task)"
+                  class="icon-btn check-action"
+                  :class="{ active: task.isDone }"
+                  :title="task.isDone ? '取消完成' : '完成'"
+                  :aria-label="task.isDone ? '取消完成' : '完成'"
+                  @click.stop="store.toggleTaskDone(task)"
                 >
-                  <Pencil :size="13" />
+                  <Check :size="13" :stroke-width="2.4" />
                 </button>
                 <button
                   type="button"
                   class="icon-btn danger"
                   title="删除"
+                  aria-label="删除"
                   @click.stop="store.requestDeleteTask(task)"
                 >
                   <Trash2 :size="13" />
@@ -435,15 +480,22 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
           <span class="memo-count tabular-nums">{{ memos.length }} 条</span>
         </div>
 
-        <ul v-if="memos.length > 0" class="day-memo-list">
+        <ul v-if="memos.length > 0" ref="dayMemoListRef" class="day-memo-list">
           <li
             v-for="memo in memos"
             :key="memo.id"
+            :data-drag-id="memo.id"
             class="day-memo-row"
-            :class="{ 'is-editing': editingMemoId === memo.id }"
+            :class="{
+              'is-editing': editingMemoId === memo.id,
+              'is-dragging': draggingMemoId === memo.id,
+              'drag-over-before': memoDropIndicator?.id === memo.id && memoDropIndicator.position === 'before',
+              'drag-over-after': memoDropIndicator?.id === memo.id && memoDropIndicator.position === 'after',
+            }"
+            @pointerdown="onMemoPointerDown(memo.id, $event)"
             @click.stop
           >
-            <div v-if="editingMemoId === memo.id" class="doc-compose full-edit-wrap">
+            <div v-if="editingMemoId === memo.id" class="doc-compose full-edit-wrap" data-no-drag>
               <input
                 ref="editMemoRef"
                 v-model="editMemoText"
@@ -464,19 +516,12 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
               <span class="memo-content" @dblclick.stop="startEditMemo(memo)">
                 {{ memo.content }}
               </span>
-              <div class="row-actions">
-                <button
-                  type="button"
-                  class="icon-btn"
-                  title="编辑"
-                  @click.stop="startEditMemo(memo)"
-                >
-                  <Pencil :size="13" />
-                </button>
+              <div class="row-actions" @dblclick.stop>
                 <button
                   type="button"
                   class="icon-btn danger"
                   title="删除"
+                  aria-label="删除"
                   @click.stop="store.requestDeleteMemo(memo)"
                 >
                   <Trash2 :size="13" />
@@ -625,18 +670,32 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
   gap: 10px;
   padding: 7px 10px;
   border-radius: var(--radius-sm);
-  cursor: default;
+  cursor: grab;
   transition: background-color 0.12s ease;
+}
+
+.day-task-row:active,
+.day-memo-row:active {
+  cursor: grabbing;
 }
 
 .day-task-row.is-editing,
 .day-memo-row.is-editing {
   padding: 0;
+  cursor: default;
 }
 
 .day-task-row:hover:not(.is-editing),
 .day-memo-row:hover:not(.is-editing) {
   background: var(--bg-surface-subtle);
+}
+
+.day-task-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
 }
 
 .row-actions {
@@ -667,6 +726,7 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
 .day-task-row.is-done .time-badge {
   background: var(--bg-muted);
   color: var(--text-tertiary);
+  text-decoration: line-through;
 }
 
 .task-name {

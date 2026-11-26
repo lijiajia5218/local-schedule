@@ -12,12 +12,14 @@ import {
 } from '@/core/timeParser';
 
 describe('parseTimePart', () => {
-  it('supports H, HH, H:MM, HH:MM formats including full-width colon', () => {
+  it('supports H, HH, H:MM, HH:MM formats including full-width colon and dot separators', () => {
     expect(parseTimePart('9')).toEqual({ ok: true, normalized: '09:00', minutes: 540 });
     expect(parseTimePart('09')).toEqual({ ok: true, normalized: '09:00', minutes: 540 });
     expect(parseTimePart('9:05')).toEqual({ ok: true, normalized: '09:05', minutes: 545 });
     expect(parseTimePart('10:30')).toEqual({ ok: true, normalized: '10:30', minutes: 630 });
     expect(parseTimePart('10：30')).toEqual({ ok: true, normalized: '10:30', minutes: 630 });
+    expect(parseTimePart('10.30')).toEqual({ ok: true, normalized: '10:30', minutes: 630 });
+    expect(parseTimePart('9.05')).toEqual({ ok: true, normalized: '09:05', minutes: 545 });
     expect(parseTimePart('23:59')).toEqual({ ok: true, normalized: '23:59', minutes: 1439 });
   });
 
@@ -26,6 +28,7 @@ describe('parseTimePart', () => {
     expect(parseTimePart('24:00').ok).toBe(false);
     expect(parseTimePart('9:60').ok).toBe(false);
     expect(parseTimePart('9:5').ok).toBe(false);
+    expect(parseTimePart('9.5').ok).toBe(false);
     expect(parseTimePart('abc').ok).toBe(false);
   });
 });
@@ -83,6 +86,20 @@ describe('parseShorthandTask', () => {
       startTime: '10:30',
       endTime: '11:30',
       title: '产品评审|带补充',
+      isDone: false,
+    });
+    expect(parseShorthandTask('【】10.30-11.45｜需求评审')).toEqual({
+      ok: true,
+      startTime: '10:30',
+      endTime: '11:45',
+      title: '需求评审',
+      isDone: false,
+    });
+    expect(parseShorthandTask('【】9-10.30｜早会')).toEqual({
+      ok: true,
+      startTime: '09:00',
+      endTime: '10:30',
+      title: '早会',
       isDone: false,
     });
   });

@@ -13,7 +13,7 @@ export type UpdaterStatus =
   | 'unsupported';
 
 export const useUpdaterStore = defineStore('updater', () => {
-  const currentVersion = ref('0.3.0');
+  const currentVersion = ref('0.3.1');
   const status = ref<UpdaterStatus>('idle');
   const availableVersion = ref<string | null>(null);
   const releaseNotes = ref('');

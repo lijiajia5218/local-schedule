@@ -30,7 +30,12 @@ export function generateWeekMarkdown(week: WeekBundle): string {
 
     const dayTasks = week.tasks
       .filter((t) => t.taskDate === day.date)
-      .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime));
+      .sort(
+        (a, b) =>
+          a.sortOrder - b.sortOrder ||
+          a.startTime.localeCompare(b.startTime) ||
+          a.endTime.localeCompare(b.endTime)
+      );
 
     const dayMemos = week.memos
       .filter((m) => m.memoDate === day.date)

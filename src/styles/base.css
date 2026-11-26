@@ -205,15 +205,50 @@ button {
 }
 
 .check-box:hover {
-  border-color: var(--accent);
+  border-color: var(--success);
+  background: var(--success-soft);
+}
+
+.check-box .check-preview {
+  opacity: 0;
+  color: var(--success);
+  transition: opacity 0.12s ease;
+}
+
+.check-box:not(.checked):hover .check-preview {
+  opacity: 0.7;
 }
 
 .check-box.checked {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--success);
+  border-color: var(--success);
   color: #ffffff;
 }
 
 .check-box:active {
   transform: scale(0.92);
+}
+
+.icon-btn.check-action:hover,
+.icon-btn.check-action.active {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+/* Pointer drag-and-drop reorder feedback */
+[data-drag-id] {
+  touch-action: none;
+}
+
+.is-dragging {
+  opacity: 0.45;
+  background: var(--accent-soft) !important;
+}
+
+.drag-over-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.drag-over-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
 }

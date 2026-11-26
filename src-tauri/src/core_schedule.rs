@@ -24,6 +24,8 @@ pub struct DailyTask {
     pub end_time: String,
     pub title: String,
     pub is_done: bool,
+    #[serde(default)]
+    pub sort_order: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -76,9 +78,9 @@ pub struct BackupPayload {
     pub daily_memo: Vec<DailyMemo>,
 }
 
-/// Parses a single time token in `H`, `HH`, `H:MM`, or `HH:MM` format into normalized `HH:MM`.
+/// Parses a single time token in `H`, `HH`, `H:MM`, `HH:MM`, or `H.MM`/`HH.MM` format into normalized `HH:MM`.
 pub fn parse_time_part(raw: &str) -> Result<(String, u32), String> {
-    let normalized_colon = raw.trim().replace('：', ":");
+    let normalized_colon = raw.trim().replace(['：', '.', '。'], ":");
     let trimmed = normalized_colon.as_str();
     if trimmed.is_empty() {
         return Err("时间不能为空".to_string());
@@ -275,6 +277,9 @@ mod tests {
         assert_eq!(parse_time_part("09").unwrap(), ("09:00".to_string(), 540));
         assert_eq!(parse_time_part("9:05").unwrap(), ("09:05".to_string(), 545));
         assert_eq!(parse_time_part("10:30").unwrap(), ("10:30".to_string(), 630));
+        assert_eq!(parse_time_part("10.30").unwrap(), ("10:30".to_string(), 630));
+        assert_eq!(parse_time_part("9.05").unwrap(), ("09:05".to_string(), 545));
+        assert!(parse_time_part("9.5").is_err());
         assert!(parse_time_part("24:00").is_err());
         assert!(parse_time_part("9:60").is_err());
     }
@@ -288,6 +293,10 @@ mod tests {
         assert_eq!(
             parse_time_range("10:30-11:30").unwrap(),
             ("10:30".to_string(), "11:30".to_string())
+        );
+        assert_eq!(
+            parse_time_range("10.30-11.45").unwrap(),
+            ("10:30".to_string(), "11:45".to_string())
         );
         assert!(parse_time_range("10-9").is_err());
         assert!(parse_time_range("10-10").is_err());

@@ -178,7 +178,7 @@ onUnmounted(() => {
             <div class="pop-item">
               <span class="pop-tag task">待办</span>
               <code>【】9-10｜周会</code>
-              <span class="pop-extra">已完成用 【x】</span>
+              <span class="pop-extra">支持 10.30-11.30 / 【x】</span>
             </div>
             <div class="pop-item">
               <span class="pop-tag memo">备忘</span>
@@ -189,7 +189,7 @@ onUnmounted(() => {
               <span class="pop-tag focus">重点</span>
               <code>【】方案评审 @周五 - 进行中</code>
             </div>
-            <div class="pop-tip">双击条目原地编辑 · 清空回车删除</div>
+            <div class="pop-tip">双击条目编辑 · 拖拽调整顺序 · 清空回车删除</div>
           </div>
         </div>
 

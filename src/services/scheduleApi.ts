@@ -114,6 +114,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '10:30',
         title: '需求调研与表结构讨论',
         isDone: true,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -124,6 +125,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '16:00',
         title: '整理多周视图交互方案',
         isDone: true,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -134,6 +136,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '11:30',
         title: 'SQLite 存储方案确认',
         isDone: true,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -144,6 +147,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '10:00',
         title: '周例会与重点任务对齐',
         isDone: true,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -154,6 +158,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '16:30',
         title: '梳理核心模块功能清单',
         isDone: true,
+        sortOrder: 1,
         createdAt: now,
         updatedAt: now,
       },
@@ -164,6 +169,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '11:00',
         title: '客户端界面设计与联调',
         isDone: false,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -174,6 +180,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '15:30',
         title: '技术架构评审会',
         isDone: false,
+        sortOrder: 1,
         createdAt: now,
         updatedAt: now,
       },
@@ -184,6 +191,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '11:30',
         title: '专题同步会材料准备',
         isDone: false,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -194,6 +202,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '17:00',
         title: 'SQLite 导出与恢复测试',
         isDone: false,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -204,6 +213,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '17:00',
         title: '周度工作复盘与归档',
         isDone: false,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -214,6 +224,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '11:30',
         title: '阅读技术书籍与整理笔记',
         isDone: false,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -224,6 +235,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '20:30',
         title: '梳理下周重点待办清单',
         isDone: false,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -234,6 +246,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '10:00',
         title: '下周工作计划同步',
         isDone: false,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -244,6 +257,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '15:30',
         title: '阶段成果回顾与需求复核',
         isDone: false,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -254,6 +268,7 @@ function buildSeedData(): LocalDbSchema {
         endTime: '17:30',
         title: 'Markdown 周报归档',
         isDone: false,
+        sortOrder: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -307,9 +322,14 @@ function readLocalDb(): LocalDbSchema {
   }
   try {
     const parsed = JSON.parse(raw) as Partial<LocalDbSchema>;
+    const rawTasks = Array.isArray(parsed.dailyTask) ? parsed.dailyTask : [];
+    const normalizedTasks = rawTasks.map((t, idx) => ({
+      ...t,
+      sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : idx,
+    }));
     return {
       weeklyFocus: Array.isArray(parsed.weeklyFocus) ? parsed.weeklyFocus : [],
-      dailyTask: Array.isArray(parsed.dailyTask) ? parsed.dailyTask : [],
+      dailyTask: normalizedTasks,
       dailyMemo: Array.isArray(parsed.dailyMemo) ? parsed.dailyMemo : [],
     };
   } catch {
@@ -375,6 +395,7 @@ export interface UpsertTaskInput {
   endTime: string;
   title: string;
   isDone: boolean;
+  sortOrder?: number;
 }
 
 export interface UpsertMemoInput {
@@ -403,8 +424,10 @@ export const scheduleApi = {
         .sort(
           (a, b) =>
             a.taskDate.localeCompare(b.taskDate) ||
+            a.sortOrder - b.sortOrder ||
             a.startTime.localeCompare(b.startTime) ||
-            a.endTime.localeCompare(b.endTime)
+            a.endTime.localeCompare(b.endTime) ||
+            a.createdAt.localeCompare(b.createdAt)
         ),
       memos: db.dailyMemo
         .filter((m) => m.memoDate >= weekStart && m.memoDate <= weekEnd)
@@ -426,7 +449,13 @@ export const scheduleApi = {
       date,
       tasks: db.dailyTask
         .filter((t) => t.taskDate === date)
-        .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime)),
+        .sort(
+          (a, b) =>
+            a.sortOrder - b.sortOrder ||
+            a.startTime.localeCompare(b.startTime) ||
+            a.endTime.localeCompare(b.endTime) ||
+            a.createdAt.localeCompare(b.createdAt)
+        ),
       memos: db.dailyMemo
         .filter((m) => m.memoDate === date)
         .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)),
@@ -510,6 +539,7 @@ export const scheduleApi = {
         endTime: input.endTime,
         title: input.title,
         isDone: input.isDone,
+        sortOrder: input.sortOrder ?? null,
       });
     }
 
@@ -536,11 +566,30 @@ export const scheduleApi = {
         endTime: endRes.normalized,
         title,
         isDone: input.isDone,
+        sortOrder: input.sortOrder ?? db.dailyTask[existingIdx].sortOrder,
         updatedAt: now,
       };
       db.dailyTask[existingIdx] = updated;
       writeLocalDb(db);
       return updated;
+    }
+
+    let orderVal = input.sortOrder;
+    if (orderVal === undefined) {
+      const siblings = db.dailyTask
+        .filter((t) => t.taskDate === input.taskDate)
+        .sort(
+          (a, b) =>
+            a.sortOrder - b.sortOrder ||
+            a.startTime.localeCompare(b.startTime) ||
+            a.endTime.localeCompare(b.endTime) ||
+            a.createdAt.localeCompare(b.createdAt)
+        );
+      const insertIdx = siblings.findIndex((t) => t.startTime > startRes.normalized);
+      orderVal = insertIdx === -1 ? siblings.length : insertIdx;
+      siblings.forEach((sib, idx) => {
+        sib.sortOrder = idx >= (orderVal as number) ? idx + 1 : idx;
+      });
     }
 
     const created: DailyTask = {
@@ -550,12 +599,33 @@ export const scheduleApi = {
       endTime: endRes.normalized,
       title,
       isDone: input.isDone,
+      sortOrder: orderVal,
       createdAt: now,
       updatedAt: now,
     };
     db.dailyTask.push(created);
     writeLocalDb(db);
     return created;
+  },
+
+  async reorderItems(kind: 'focus' | 'task' | 'memo', orderedIds: string[]): Promise<void> {
+    if (orderedIds.length === 0) return;
+    if (isTauriRuntime()) {
+      return invoke<void>('reorder_items', { kind, orderedIds });
+    }
+    const db = readLocalDb();
+    const now = new Date().toISOString();
+    const orderMap = new Map(orderedIds.map((id, idx) => [id, idx]));
+    const list =
+      kind === 'focus' ? db.weeklyFocus : kind === 'task' ? db.dailyTask : db.dailyMemo;
+    for (const item of list) {
+      const nextOrder = orderMap.get(item.id);
+      if (nextOrder !== undefined) {
+        item.sortOrder = nextOrder;
+        item.updatedAt = now;
+      }
+    }
+    writeLocalDb(db);
   },
 
   async deleteTask(id: string): Promise<void> {

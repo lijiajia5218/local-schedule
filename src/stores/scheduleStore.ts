@@ -152,7 +152,13 @@ export const useScheduleStore = defineStore('schedule', () => {
     const items = weeksByStart.value[weekStart]?.tasks ?? [];
     return items
       .filter((t) => t.taskDate === date)
-      .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime));
+      .sort(
+        (a, b) =>
+          a.sortOrder - b.sortOrder ||
+          a.startTime.localeCompare(b.startTime) ||
+          a.endTime.localeCompare(b.endTime) ||
+          a.createdAt.localeCompare(b.createdAt)
+      );
   }
 
   function memosForDate(date: string): DailyMemo[] {
@@ -353,16 +359,16 @@ export const useScheduleStore = defineStore('schedule', () => {
   async function saveTask(input: UpsertTaskInput): Promise<DailyTask> {
     const saved = await scheduleApi.upsertTask(input);
     const weekStart = weekStartOf(saved.taskDate);
-    const bucket = weeksByStart.value[weekStart];
-    if (bucket) {
-      const idx = bucket.tasks.findIndex((t) => t.id === saved.id);
-      if (idx !== -1) {
-        bucket.tasks[idx] = saved;
-      } else {
-        bucket.tasks.push(saved);
-      }
-    } else {
+    if (!input.id || !weeksByStart.value[weekStart]) {
       await loadWeek(weekStart);
+      return saved;
+    }
+    const bucket = weeksByStart.value[weekStart];
+    const idx = bucket.tasks.findIndex((t) => t.id === saved.id);
+    if (idx !== -1) {
+      bucket.tasks[idx] = saved;
+    } else {
+      bucket.tasks.push(saved);
     }
     return saved;
   }
@@ -375,7 +381,61 @@ export const useScheduleStore = defineStore('schedule', () => {
       endTime: task.endTime,
       title: task.title,
       isDone: !task.isDone,
+      sortOrder: task.sortOrder,
     });
+  }
+
+  async function reorderFocuses(weekStart: string, orderedIds: string[]): Promise<void> {
+    const bucket = weeksByStart.value[weekStart];
+    if (bucket) {
+      const orderMap = new Map(orderedIds.map((id, idx) => [id, idx]));
+      for (const item of bucket.focuses) {
+        const nextOrder = orderMap.get(item.id);
+        if (nextOrder !== undefined) item.sortOrder = nextOrder;
+      }
+    }
+    try {
+      await scheduleApi.reorderItems('focus', orderedIds);
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : '保存周重点排序失败', 'error');
+      await loadWeek(weekStart);
+    }
+  }
+
+  async function reorderTasks(date: string, orderedIds: string[]): Promise<void> {
+    const weekStart = weekStartOf(date);
+    const bucket = weeksByStart.value[weekStart];
+    if (bucket) {
+      const orderMap = new Map(orderedIds.map((id, idx) => [id, idx]));
+      for (const item of bucket.tasks) {
+        const nextOrder = orderMap.get(item.id);
+        if (nextOrder !== undefined) item.sortOrder = nextOrder;
+      }
+    }
+    try {
+      await scheduleApi.reorderItems('task', orderedIds);
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : '保存待办排序失败', 'error');
+      await loadWeek(weekStart);
+    }
+  }
+
+  async function reorderMemos(date: string, orderedIds: string[]): Promise<void> {
+    const weekStart = weekStartOf(date);
+    const bucket = weeksByStart.value[weekStart];
+    if (bucket) {
+      const orderMap = new Map(orderedIds.map((id, idx) => [id, idx]));
+      for (const item of bucket.memos) {
+        const nextOrder = orderMap.get(item.id);
+        if (nextOrder !== undefined) item.sortOrder = nextOrder;
+      }
+    }
+    try {
+      await scheduleApi.reorderItems('memo', orderedIds);
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : '保存备忘排序失败', 'error');
+      await loadWeek(weekStart);
+    }
   }
 
   async function saveMemo(input: UpsertMemoInput): Promise<DailyMemo> {
@@ -576,11 +636,14 @@ export const useScheduleStore = defineStore('schedule', () => {
     saveFocus,
     toggleFocusDone,
     requestDeleteFocus,
+    reorderFocuses,
     saveTask,
     toggleTaskDone,
     requestDeleteTask,
+    reorderTasks,
     saveMemo,
     requestDeleteMemo,
+    reorderMemos,
     undoDelete,
     updateDataDir,
     exportCurrentWeekMarkdown,

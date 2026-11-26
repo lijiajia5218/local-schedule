@@ -24,6 +24,7 @@ pub fn run() {
             commands::delete_task,
             commands::upsert_memo,
             commands::delete_memo,
+            commands::reorder_items,
             commands::get_settings,
             commands::update_data_dir,
             commands::export_week_markdown,
