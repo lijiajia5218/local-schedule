@@ -271,11 +271,11 @@ async function handleEditBlur(memo: DailyMemo): Promise<void> {
 <style scoped>
 .memo-cell {
   min-width: 0;
-  padding: 6px 7px 7px;
+  padding: 7px 8px 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  background: #fafbfd;
+  background: var(--bg-surface-memo);
   border-right: 1px solid var(--border-subtle);
   cursor: text;
   transition: background-color 0.14s ease;
@@ -286,11 +286,11 @@ async function handleEditBlur(memo: DailyMemo): Promise<void> {
 }
 
 .memo-cell.is-weekend {
-  background: #f5f7fb;
+  background: var(--bg-weekend);
 }
 
 .memo-cell.is-today {
-  background: #f4f8ff;
+  background: var(--bg-today);
 }
 
 .memo-list {
@@ -307,10 +307,10 @@ async function handleEditBlur(memo: DailyMemo): Promise<void> {
   display: flex;
   align-items: flex-start;
   gap: 5px;
-  padding: 2.5px 5px;
+  padding: 3px 6px;
   border-radius: var(--radius-xs);
   font-size: 11.5px;
-  line-height: 1.4;
+  line-height: 1.44;
   color: var(--text-secondary);
   cursor: grab;
   transition: background-color 0.12s ease;
@@ -329,10 +329,14 @@ async function handleEditBlur(memo: DailyMemo): Promise<void> {
   background: var(--bg-hover);
 }
 
+.memo-cell.is-today .memo-row:hover:not(.is-editing) {
+  background: var(--bg-today-hover);
+}
+
 .memo-dot {
   color: var(--text-tertiary);
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.4;
   flex-shrink: 0;
 }
 
@@ -368,10 +372,11 @@ async function handleEditBlur(memo: DailyMemo): Promise<void> {
 }
 
 .doc-input-wrap {
-  padding: 4px 5px;
+  padding: 4px 6px;
   border-radius: var(--radius-xs);
   background: var(--bg-surface);
   border: 1px solid var(--accent-border);
+  box-shadow: 0 0 0 2.5px var(--accent-ring);
   width: 100%;
 }
 

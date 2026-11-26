@@ -174,7 +174,7 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
 <template>
   <div class="focus-strip" @click="openAddForm()">
     <div class="focus-label" @click.stop="openAddForm()">
-      <Target :size="12" />
+      <Target :size="12.5" :stroke-width="2" />
       <span>周重点</span>
     </div>
 
@@ -285,18 +285,18 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
 .focus-strip {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 12px;
+  padding: 9px 16px;
   border-bottom: 1px solid var(--border-hairline);
-  background: var(--bg-surface);
+  background: var(--bg-surface-subtle);
   cursor: text;
 }
 
 .focus-label {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding-top: 3px;
+  gap: 5px;
+  padding-top: 4px;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -323,15 +323,15 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .focus-row {
   display: flex;
   align-items: center;
   gap: 7px;
-  min-height: 24px;
-  padding: 2px 5px;
+  min-height: 25px;
+  padding: 2.5px 6px;
   border-radius: var(--radius-xs);
   cursor: grab;
   transition: background-color 0.12s ease;
@@ -347,7 +347,7 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
 }
 
 .focus-row:hover:not(.is-editing) {
-  background: var(--bg-surface-subtle);
+  background: var(--bg-hover);
 }
 
 .focus-row .check-box {
@@ -391,10 +391,11 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
 .target-chip {
   display: inline-flex;
   align-items: center;
-  padding: 0 6px;
+  padding: 0 7px;
   height: 18px;
   border-radius: var(--radius-pill);
   background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
   color: var(--accent);
   font-size: 11px;
   font-weight: 500;
@@ -402,6 +403,7 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
 
 .focus-row.is-done .target-chip {
   background: var(--bg-muted);
+  border-color: transparent;
   color: var(--text-tertiary);
   text-decoration: line-through;
 }
@@ -410,21 +412,24 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
   font-size: 11px;
   color: var(--warning);
   background: var(--warning-soft);
-  padding: 0 6px;
+  border: 1px solid var(--warning-border);
+  padding: 0 7px;
   height: 18px;
   display: inline-flex;
   align-items: center;
   border-radius: var(--radius-pill);
+  font-weight: 500;
 }
 
 .focus-row.is-done .status-note {
   background: var(--bg-muted);
+  border-color: transparent;
   color: var(--text-tertiary);
   text-decoration: line-through;
 }
 
 .focus-ghost-line {
-  padding: 1px 5px;
+  padding: 1px 6px;
   font-size: 11px;
   color: var(--text-placeholder);
   opacity: 0;
@@ -433,7 +438,7 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
 }
 
 .focus-ghost-line.is-empty {
-  opacity: 0.7;
+  opacity: 0.72;
 }
 
 .focus-strip:hover .focus-ghost-line {
@@ -450,8 +455,9 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
   width: 100%;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
-  background: var(--accent-soft);
+  background: var(--bg-surface);
   border: 1px solid var(--accent-border);
+  box-shadow: 0 0 0 2.5px var(--accent-ring);
   display: flex;
   flex-direction: column;
   gap: 2px;

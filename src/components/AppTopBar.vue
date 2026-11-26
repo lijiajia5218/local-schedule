@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
   ArrowUpCircle,
-  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Columns3,
@@ -75,8 +74,44 @@ onUnmounted(() => {
   <header class="topbar">
     <div class="topbar-left">
       <div class="brand" @click="store.backToWeekView()" title="回到周视图">
-        <span class="brand-icon">
-          <CalendarDays :size="15" :stroke-width="2" />
+        <span class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 28 28" width="26" height="26" fill="none">
+            <rect
+              x="2.5"
+              y="4"
+              width="23"
+              height="21.5"
+              rx="6"
+              fill="#FCFBF8"
+              stroke="rgba(31,36,43,0.14)"
+              stroke-width="1"
+            />
+            <path
+              d="M2.5 10C2.5 6.68629 5.18629 4 8.5 4H19.5C22.8137 4 25.5 6.68629 25.5 10V10.5H2.5V10Z"
+              fill="url(#ls-brand-hdr)"
+            />
+            <rect x="8" y="2.2" width="2.4" height="4.4" rx="1.2" fill="#D5D9DF" stroke="#8C95A2" stroke-width="0.6" />
+            <rect x="17.6" y="2.2" width="2.4" height="4.4" rx="1.2" fill="#D5D9DF" stroke="#8C95A2" stroke-width="0.6" />
+            <rect x="6.2" y="13.2" width="4.4" height="4" rx="1.1" fill="#ECE9E2" />
+            <rect x="11.8" y="13.2" width="4.4" height="4" rx="1.1" fill="#ECE9E2" />
+            <rect x="17.4" y="13.2" width="4.4" height="4" rx="1.1" fill="#ECE9E2" />
+            <rect x="6.2" y="18.6" width="4.4" height="4" rx="1.1" fill="#ECE9E2" />
+            <rect x="11.8" y="18.6" width="4.4" height="4" rx="1.1" fill="#E0B06A" />
+            <rect x="17.4" y="18.6" width="4.4" height="4" rx="1.1" fill="#4F8A6E" />
+            <path
+              d="M18.6 20.6L19.4 21.4L20.8 19.9"
+              stroke="#FFFFFF"
+              stroke-width="1.1"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <defs>
+              <linearGradient id="ls-brand-hdr" x1="14" y1="4" x2="14" y2="10.5" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#5E7A96" />
+                <stop offset="1" stop-color="#4B637D" />
+              </linearGradient>
+            </defs>
+          </svg>
         </span>
         <span class="brand-title">本地日程</span>
       </div>
@@ -216,10 +251,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: saturate(180%) blur(12px);
-  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  gap: 12px;
+  background: rgba(250, 249, 246, 0.86);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
   border-bottom: 1px solid var(--border-hairline);
   flex-shrink: 0;
   user-select: none;
@@ -230,7 +265,7 @@ onUnmounted(() => {
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
 }
 
@@ -238,26 +273,26 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 4px 3px 0;
+  padding: 3px 6px 3px 2px;
   border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: background-color 0.14s ease;
 }
 
-.brand-icon {
+.brand:hover {
+  background: rgba(31, 36, 43, 0.04);
+}
+
+.brand-logo {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
-  color: #ffffff;
-  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.28);
+  filter: drop-shadow(0 1px 2px rgba(28, 32, 38, 0.1));
 }
 
 .brand-title {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: -0.015em;
   color: var(--text-primary);
   white-space: nowrap;
@@ -274,9 +309,10 @@ onUnmounted(() => {
 .nav-stepper {
   display: inline-flex;
   align-items: center;
-  background: var(--bg-surface-subtle);
+  background: var(--bg-surface);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-sm);
+  box-shadow: 0 1px 1px rgba(28, 32, 38, 0.02);
   height: 28px;
   padding: 0 2px;
 }
@@ -309,7 +345,7 @@ onUnmounted(() => {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text-primary);
-  min-width: 132px;
+  min-width: 126px;
   text-align: center;
   white-space: nowrap;
 }
@@ -327,14 +363,14 @@ onUnmounted(() => {
   padding: 2px;
   background: var(--bg-muted);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-hairline);
+  border: 1px solid var(--border-subtle);
 }
 
 .seg-item {
   height: 22px;
-  padding: 0 12px;
+  padding: 0 11px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
   color: var(--text-secondary);
   font-size: 12px;
@@ -373,10 +409,11 @@ onUnmounted(() => {
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.14s ease;
 }
 
 .update-pill:hover {
-  background: #dbeafe;
+  background: #e1eaf4;
 }
 
 .settings-btn {
@@ -390,7 +427,7 @@ onUnmounted(() => {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--warning);
 }
 
 .syntax-wrap {
@@ -412,8 +449,8 @@ onUnmounted(() => {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 310px;
-  padding: 10px 12px;
+  width: 318px;
+  padding: 12px 14px;
   background: var(--bg-surface);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-md);
@@ -435,7 +472,7 @@ onUnmounted(() => {
 
 .pop-tag {
   flex-shrink: 0;
-  padding: 1px 6px;
+  padding: 1px 7px;
   border-radius: var(--radius-xs);
   font-size: 11px;
   font-weight: 600;
@@ -444,6 +481,7 @@ onUnmounted(() => {
 .pop-tag.task {
   background: var(--accent-soft);
   color: var(--accent);
+  border: 1px solid var(--accent-border);
 }
 
 .pop-tag.memo {
@@ -454,6 +492,7 @@ onUnmounted(() => {
 .pop-tag.focus {
   background: var(--warning-soft);
   color: var(--warning);
+  border: 1px solid var(--warning-border);
 }
 
 .pop-item code {
@@ -461,7 +500,7 @@ onUnmounted(() => {
   font-size: 11.5px;
   background: var(--bg-surface-subtle);
   border: 1px solid var(--border-subtle);
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: var(--radius-xs);
   color: var(--text-primary);
 }
@@ -476,5 +515,27 @@ onUnmounted(() => {
   border-top: 1px solid var(--border-subtle);
   font-size: 11px;
   color: var(--text-tertiary);
+}
+
+@media (max-width: 960px) {
+  .topbar {
+    padding: 0 14px;
+    gap: 8px;
+  }
+
+  .topbar-left,
+  .topbar-right {
+    gap: 8px;
+  }
+
+  .nav-group {
+    padding-left: 8px;
+    gap: 6px;
+  }
+
+  .period-label {
+    min-width: 114px;
+    padding: 0 6px;
+  }
 }
 </style>

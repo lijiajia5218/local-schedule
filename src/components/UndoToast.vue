@@ -56,14 +56,14 @@ const store = useScheduleStore();
   max-width: 460px;
   padding: 9px 14px;
   border-radius: var(--radius-md);
-  background: #1e2430;
-  color: #f8fafc;
+  background: #23272f;
+  color: #f6f5f1;
   font-size: 12.5px;
   box-shadow: var(--shadow-md);
 }
 
 .toast-item.tone-error {
-  background: #991b1b;
+  background: var(--danger);
 }
 
 .toast-msg {
@@ -81,15 +81,15 @@ const store = useScheduleStore();
   padding: 0 9px;
   border: none;
   border-radius: var(--radius-xs);
-  background: rgba(255, 255, 255, 0.16);
-  color: #93c5fd;
+  background: rgba(255, 255, 255, 0.14);
+  color: #cbd8e6;
   font-size: 12px;
   font-weight: 600;
-  transition: background-color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .undo-btn:hover {
-  background: rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.24);
   color: #ffffff;
 }
 
@@ -99,7 +99,7 @@ const store = useScheduleStore();
   bottom: 0;
   height: 2.5px;
   width: 100%;
-  background: #60a5fa;
+  background: #e0b06a;
   transform-origin: left center;
   animation: countdown 5s linear forwards;
 }

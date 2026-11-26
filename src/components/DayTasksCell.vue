@@ -305,13 +305,13 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
 <style scoped>
 .tasks-cell {
   min-width: 0;
-  padding: 7px 7px 6px;
+  padding: 8px 8px 7px;
   display: flex;
   flex-direction: column;
   gap: 3px;
   background: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
-  border-bottom: 1px dashed #e2e7f0;
+  border-bottom: 1px dashed rgba(31, 36, 43, 0.09);
   cursor: text;
   transition: background-color 0.14s ease;
 }
@@ -325,7 +325,7 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
 }
 
 .tasks-cell.is-today {
-  background: #fbfdff;
+  background: var(--bg-today);
 }
 
 .task-list {
@@ -334,7 +334,7 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .task-card {
@@ -342,7 +342,7 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  padding: 4px 5px;
+  padding: 5px 6px;
   border-radius: var(--radius-xs);
   transition: background-color 0.12s ease;
   cursor: grab;
@@ -361,6 +361,10 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
   background: var(--bg-hover);
 }
 
+.tasks-cell.is-today .task-card:hover:not(.is-editing) {
+  background: var(--bg-today-hover);
+}
+
 .task-check {
   margin-top: 2px;
   width: 14px;
@@ -373,21 +377,28 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
 }
 
 .task-time {
+  display: inline-block;
   font-family: var(--font-mono);
   font-size: 10.5px;
   font-weight: 500;
-  color: #3b6fd8;
+  letter-spacing: -0.01em;
+  color: var(--accent);
+  background: rgba(74, 100, 130, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-bottom: 2px;
   line-height: 1.25;
 }
 
 .task-card.is-done .task-time {
+  background: var(--bg-muted);
   color: var(--text-tertiary);
   text-decoration: line-through;
 }
 
 .task-title {
   font-size: 12px;
-  line-height: 1.38;
+  line-height: 1.4;
   color: var(--text-primary);
   word-break: break-word;
 }
@@ -399,8 +410,8 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
 
 .item-actions {
   position: absolute;
-  top: 3px;
-  right: 3px;
+  top: 4px;
+  right: 4px;
   opacity: 0;
   display: flex;
   align-items: center;
@@ -424,10 +435,11 @@ async function handleEditBlur(task: DailyTask): Promise<void> {
 
 .doc-input-wrap {
   margin-top: 2px;
-  padding: 4px 5px;
+  padding: 4px 6px;
   border-radius: var(--radius-xs);
-  background: var(--accent-soft);
+  background: var(--bg-surface);
   border: 1px solid var(--accent-border);
+  box-shadow: 0 0 0 2.5px var(--accent-ring);
   width: 100%;
 }
 

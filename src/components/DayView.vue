@@ -353,8 +353,16 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
           <span v-if="isWeekend" class="tag-weekend">周末</span>
         </div>
 
-        <div v-if="tasks.length > 0" class="progress-text tabular-nums">
-          已完成 {{ doneCount }}/{{ tasks.length }}
+        <div v-if="tasks.length > 0" class="progress-wrap">
+          <span class="progress-text tabular-nums">
+            已完成 {{ doneCount }}/{{ tasks.length }}
+          </span>
+          <span class="day-progress-track" aria-hidden="true">
+            <span
+              class="day-progress-fill"
+              :style="{ width: `${Math.round((doneCount / tasks.length) * 100)}%` }"
+            />
+          </span>
         </div>
       </div>
 
@@ -610,11 +618,33 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
   color: var(--text-secondary);
 }
 
-.progress-text {
+.progress-wrap {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-text {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-tertiary);
+}
+
+.day-progress-track {
+  width: 56px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  overflow: hidden;
+}
+
+.day-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--success);
+  transition: width 0.25s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .card {
@@ -622,7 +652,7 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-lg);
   padding: 18px 22px;
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -687,7 +717,7 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
 
 .day-task-row:hover:not(.is-editing),
 .day-memo-row:hover:not(.is-editing) {
-  background: var(--bg-surface-subtle);
+  background: var(--bg-hover);
 }
 
 .day-task-main {
@@ -717,14 +747,16 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
   font-size: 12px;
   font-weight: 500;
   padding: 2px 8px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
   color: var(--accent);
   flex-shrink: 0;
 }
 
 .day-task-row.is-done .time-badge {
   background: var(--bg-muted);
+  border-color: transparent;
   color: var(--text-tertiary);
   text-decoration: line-through;
 }
@@ -762,8 +794,9 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
 .doc-compose {
   padding: 7px 10px;
   border-radius: var(--radius-sm);
-  background: var(--accent-soft);
+  background: var(--bg-surface);
   border: 1px solid var(--accent-border);
+  box-shadow: 0 0 0 2.5px var(--accent-ring);
 }
 
 .doc-input {

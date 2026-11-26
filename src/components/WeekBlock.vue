@@ -27,17 +27,26 @@ const isCurrentWeek = computed(() => days.value.some((d) => d.isToday));
 const isActiveWeek = computed(() => store.activeWeekStart === props.weekStart);
 
 const bundle = computed(() => store.weeksByStart[props.weekStart]);
-const summaryText = computed(() => {
-  const parts: string[] = [];
+
+const progressStats = computed(() => {
   const focuses = bundle.value?.focuses ?? [];
+  const tasks = bundle.value?.tasks ?? [];
+  const total = focuses.length + tasks.length;
+  const done = focuses.filter((f) => f.isDone).length + tasks.filter((t) => t.isDone).length;
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  const parts: string[] = [];
   if (focuses.length > 0) {
     parts.push(`重点 ${focuses.filter((f) => f.isDone).length}/${focuses.length}`);
   }
-  const tasks = bundle.value?.tasks ?? [];
   if (tasks.length > 0) {
     parts.push(`任务 ${tasks.filter((t) => t.isDone).length}/${tasks.length}`);
   }
-  return parts.join(' · ');
+  return {
+    total,
+    percent,
+    text: parts.join(' · '),
+  };
 });
 
 function handleExportClick(): void {
@@ -60,7 +69,16 @@ function handleExportClick(): void {
       </div>
 
       <div class="week-meta">
-        <span v-if="summaryText" class="summary-text tabular-nums">{{ summaryText }}</span>
+        <div v-if="progressStats.text" class="progress-group">
+          <span class="summary-text tabular-nums">{{ progressStats.text }}</span>
+          <span
+            class="mini-progress"
+            :title="`本周完成度 ${progressStats.percent}%`"
+            aria-hidden="true"
+          >
+            <span class="mini-progress-fill" :style="{ width: `${progressStats.percent}%` }" />
+          </span>
+        </div>
         <button
           type="button"
           class="icon-btn export-week-btn"
@@ -156,31 +174,31 @@ function handleExportClick(): void {
 
 <style scoped>
 .week-block {
-  scroll-margin-top: 14px;
+  scroll-margin-top: 16px;
   background: var(--bg-surface);
   border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xs);
   overflow: hidden;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .week-block.is-current {
-  border-color: #c4d7fe;
-  box-shadow: 0 2px 14px rgba(37, 99, 235, 0.05);
+  border-color: var(--accent-border);
+  box-shadow: 0 4px 18px rgba(74, 100, 130, 0.07), 0 1px 2px rgba(28, 32, 38, 0.03);
 }
 
 .week-block-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 14px;
+  padding: 8px 16px;
   background: var(--bg-surface-subtle);
   border-bottom: 1px solid var(--border-subtle);
 }
 
 .week-block.is-current .week-block-head {
-  background: #f6f9ff;
+  background: #f5f7fa;
 }
 
 .week-title-wrap {
@@ -192,21 +210,28 @@ function handleExportClick(): void {
 .week-range {
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.012em;
   color: var(--text-primary);
 }
 
 .current-week-badge {
   font-size: 10.5px;
   font-weight: 600;
-  padding: 1px 7px;
+  padding: 1.5px 8px;
   border-radius: var(--radius-pill);
   background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
   color: var(--accent);
 }
 
 .week-meta {
   display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress-group {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
@@ -216,13 +241,29 @@ function handleExportClick(): void {
   color: var(--text-tertiary);
 }
 
+.mini-progress {
+  width: 44px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  overflow: hidden;
+}
+
+.mini-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--success);
+  transition: width 0.25s cubic-bezier(0.2, 0, 0, 1);
+}
+
 .export-week-btn {
   opacity: 0;
   transition: opacity 0.14s ease, background-color 0.12s ease, color 0.12s ease;
 }
 
 .week-block:hover .export-week-btn {
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .week-grid-scroll {
@@ -233,20 +274,20 @@ function handleExportClick(): void {
 .week-calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  grid-template-rows: auto minmax(80px, auto) minmax(48px, auto);
-  min-width: 860px;
+  grid-template-rows: auto minmax(84px, auto) minmax(50px, auto);
+  min-width: 820px;
 }
 
 .week-calendar-grid.is-weekend-collapsed {
   grid-template-columns: repeat(5, minmax(0, 1fr)) 30px;
-  min-width: 640px;
+  min-width: 600px;
 }
 
 .day-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 9px;
+  padding: 7px 10px;
   background: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
@@ -264,8 +305,8 @@ function handleExportClick(): void {
 }
 
 .day-header.is-today {
-  background: #f6f9ff;
-  box-shadow: inset 0 2px 0 var(--accent);
+  background: var(--bg-today);
+  box-shadow: inset 0 2.5px 0 var(--accent);
 }
 
 .day-header:hover {
@@ -273,7 +314,7 @@ function handleExportClick(): void {
 }
 
 .day-header.is-today:hover {
-  background: #ebf2ff;
+  background: var(--bg-today-hover);
 }
 
 .day-heading {
@@ -316,6 +357,7 @@ function handleExportClick(): void {
   color: #ffffff;
   font-size: 12px;
   font-weight: 600;
+  box-shadow: 0 1px 2px rgba(74, 100, 130, 0.28);
 }
 
 .day-header-actions {
@@ -338,7 +380,7 @@ function handleExportClick(): void {
 }
 
 .collapse-weekend-btn:hover {
-  background: rgba(15, 23, 42, 0.08);
+  background: rgba(31, 36, 43, 0.08);
   color: var(--text-primary);
 }
 
@@ -376,12 +418,12 @@ function handleExportClick(): void {
 }
 
 .weekend-rail.has-items {
-  background: #f2f6ff;
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
 .weekend-rail.has-items:hover {
-  background: #e6eeff;
+  background: var(--bg-today-hover);
 }
 
 .rail-chevron {

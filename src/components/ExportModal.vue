@@ -281,8 +281,9 @@ async function confirmRestore(): Promise<void> {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgba(15, 23, 42, 0.32);
-  backdrop-filter: blur(2px);
+  background: rgba(24, 28, 35, 0.28);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;

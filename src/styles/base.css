@@ -53,12 +53,12 @@ button {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(134, 144, 156, 0.28);
+  background: rgba(110, 106, 98, 0.24);
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(134, 144, 156, 0.45);
+  background: rgba(110, 106, 98, 0.42);
 }
 
 /* Shared icon button & pill button primitives */
@@ -75,9 +75,11 @@ button {
   color: var(--text-secondary);
   font-size: 12.5px;
   font-weight: 500;
+  box-shadow: 0 1px 1px rgba(28, 32, 38, 0.02);
   transition: background-color 0.14s cubic-bezier(0.2, 0, 0, 1),
     border-color 0.14s cubic-bezier(0.2, 0, 0, 1),
     color 0.14s cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 0.14s cubic-bezier(0.2, 0, 0, 1),
     transform 0.1s cubic-bezier(0.2, 0, 0, 1);
   white-space: nowrap;
   user-select: none;
@@ -85,7 +87,7 @@ button {
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--bg-hover);
+  background: var(--bg-surface-subtle);
   color: var(--text-primary);
   border-color: var(--border-strong);
 }
@@ -95,7 +97,7 @@ button {
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.48;
   cursor: not-allowed;
 }
 
@@ -103,6 +105,7 @@ button {
   background: var(--accent);
   border-color: var(--accent);
   color: #ffffff;
+  box-shadow: 0 1px 2px rgba(59, 82, 108, 0.22);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -118,14 +121,15 @@ button {
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #b91c1c;
-  border-color: #b91c1c;
+  background: var(--danger-hover);
+  border-color: var(--danger-hover);
   color: #ffffff;
 }
 
 .btn-ghost {
   background: transparent;
   border-color: transparent;
+  box-shadow: none;
 }
 
 .btn-ghost:hover:not(:disabled) {
@@ -183,10 +187,10 @@ button {
 
 .field-input.is-error {
   border-color: var(--danger);
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+  box-shadow: 0 0 0 3px rgba(194, 85, 74, 0.14);
 }
 
-/* Custom crisp checkbox */
+/* Custom crisp checkbox — Sage Green completion */
 .check-box {
   position: relative;
   display: inline-flex;
@@ -196,17 +200,19 @@ button {
   width: 15px;
   height: 15px;
   border-radius: 4.5px;
-  border: 1.5px solid #cbd2de;
+  border: 1.5px solid #c9c3b8;
   background: var(--bg-surface);
   padding: 0;
-  transition: background-color 0.14s cubic-bezier(0.2, 0, 0, 1),
-    border-color 0.14s cubic-bezier(0.2, 0, 0, 1),
-    transform 0.1s cubic-bezier(0.2, 0, 0, 1);
+  transition: background-color 0.16s cubic-bezier(0.2, 0, 0, 1),
+    border-color 0.16s cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 0.16s cubic-bezier(0.2, 0, 0, 1),
+    transform 0.12s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .check-box:hover {
   border-color: var(--success);
   background: var(--success-soft);
+  box-shadow: 0 0 0 2px rgba(70, 131, 103, 0.1);
 }
 
 .check-box .check-preview {
@@ -216,17 +222,18 @@ button {
 }
 
 .check-box:not(.checked):hover .check-preview {
-  opacity: 0.7;
+  opacity: 0.72;
 }
 
 .check-box.checked {
   background: var(--success);
   border-color: var(--success);
   color: #ffffff;
+  box-shadow: 0 1px 2px rgba(70, 131, 103, 0.25);
 }
 
 .check-box:active {
-  transform: scale(0.92);
+  transform: scale(0.9);
 }
 
 .icon-btn.check-action:hover,
@@ -241,8 +248,9 @@ button {
 }
 
 .is-dragging {
-  opacity: 0.45;
-  background: var(--accent-soft) !important;
+  opacity: 0.55;
+  background: var(--bg-surface) !important;
+  box-shadow: var(--shadow-sm);
 }
 
 .drag-over-before {

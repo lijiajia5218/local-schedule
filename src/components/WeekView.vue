@@ -67,7 +67,7 @@ watch(
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 20px 32px;
+  padding: 16px 20px 36px;
 }
 
 .week-stream {
@@ -75,31 +75,40 @@ watch(
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .stream-edge {
   display: flex;
   justify-content: center;
+  padding-top: 2px;
 }
 
 .edge-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 26px;
-  padding: 0 12px;
-  border: none;
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid transparent;
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-tertiary);
   font-size: 11.5px;
   font-weight: 500;
-  transition: color 0.14s ease, background-color 0.14s ease;
+  transition: color 0.14s ease, background-color 0.14s ease, border-color 0.14s ease;
 }
 
 .edge-btn:hover:not(:disabled) {
   color: var(--text-primary);
-  background: rgba(15, 23, 42, 0.05);
+  background: var(--bg-surface);
+  border-color: var(--border-hairline);
+  box-shadow: var(--shadow-xs);
+}
+
+@media (max-width: 960px) {
+  .week-stream-scroll {
+    padding: 12px 14px 28px;
+  }
 }
 </style>
