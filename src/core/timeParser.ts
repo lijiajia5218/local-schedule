@@ -244,6 +244,35 @@ export function parseMemoLine(raw: string): ParseMemoResult {
   };
 }
 
+export type EditedMemoDecision =
+  | { action: 'blank' }
+  | { action: 'unchanged' }
+  | { action: 'save'; content: string; reminderTime: string | null }
+  | { action: 'error'; error: string };
+
+/**
+ * Evaluates an edited memo line against its pre-edit formatted draft.
+ * Skips saving when the user made no changes, preventing legacy `@9:00` text
+ * from accidentally being parsed and activated as a reminder on blur/Enter.
+ */
+export function resolveEditedMemo(draft: string, originalDraft: string): EditedMemoDecision {
+  if (isBlankOrBarePrefix(draft)) {
+    return { action: 'blank' };
+  }
+  if (draft.trim() === originalDraft.trim()) {
+    return { action: 'unchanged' };
+  }
+  const parsed = parseMemoLine(draft);
+  if (!parsed.ok) {
+    return { action: 'error', error: parsed.error };
+  }
+  return {
+    action: 'save',
+    content: parsed.content,
+    reminderTime: parsed.reminderTime,
+  };
+}
+
 /**
  * Strict document-line classifier inside a day cell (disallows bare plain text):
  * - Starts with `-` / `－` -> memo (extracting optional `@time` reminder)

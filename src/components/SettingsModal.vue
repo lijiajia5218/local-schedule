@@ -12,7 +12,7 @@ import {
 } from 'lucide-vue-next';
 import {
   checkNotificationPermission,
-  requestNotificationPermission,
+  sendTestDesktopNotification,
   type NotificationPermissionStatus,
 } from '@/services/notificationHelper';
 import { isTauriRuntime, scheduleApi } from '@/services/scheduleApi';
@@ -52,12 +52,8 @@ const leadPresets = [
 
 const notifPermLabel = computed(() => {
   switch (notifPerm.value) {
-    case 'granted':
-      return '已授权';
-    case 'denied':
-      return '已被系统拒绝';
-    case 'prompt':
-      return '待授权';
+    case 'desktop-managed':
+      return '由系统通知中心托管';
     default:
       return '仅桌面端可用';
   }
@@ -76,13 +72,15 @@ onMounted(async () => {
   deliveryError.value = await scheduleApi.getNotificationDeliveryError();
 });
 
-async function handleRequestNotifPermission(): Promise<void> {
-  notifPerm.value = await requestNotificationPermission();
-  deliveryError.value = await scheduleApi.getNotificationDeliveryError();
-  if (notifPerm.value === 'granted') {
-    store.pushToast('已开启系统通知权限', 'success');
-  } else if (notifPerm.value === 'denied') {
-    store.pushToast('系统通知已被拒绝，请在系统设置中开启', 'error');
+async function handleSendTestNotification(): Promise<void> {
+  try {
+    await sendTestDesktopNotification();
+    deliveryError.value = await scheduleApi.getNotificationDeliveryError();
+    store.pushToast('已发送测试通知，请查看屏幕角落系统横幅（若未弹出请检查系统通知设置）', 'info');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '发送测试通知失败';
+    deliveryError.value = msg;
+    store.pushToast(msg, 'error');
   }
 }
 
@@ -192,22 +190,22 @@ function jumpToExport(): void {
 
           <div class="perm-row">
             <div class="perm-meta">
-              <span class="sub-label">系统通知权限</span>
+              <span class="sub-label">系统通知状态</span>
               <span class="perm-badge" :class="`perm-${notifPerm}`">{{ notifPermLabel }}</span>
             </div>
             <button
-              v-if="isDesktop && notifPerm !== 'granted'"
+              v-if="isDesktop"
               type="button"
               class="btn"
-              @click="handleRequestNotifPermission()"
+              @click="handleSendTestNotification()"
             >
-              请求通知权限
+              发送测试通知
             </button>
           </div>
-          <p v-if="notifPerm === 'denied'" class="perm-hint">
-            系统已禁用通知权限。请前往系统「设置 → 通知」开启「本地日程」，窗口打开时仍会显示应用内提醒。
+          <p v-if="isDesktop" class="perm-hint">
+            桌面端无法直接读取系统通知开关。请确保系统设置中已允许「本地日程」发送通知（macOS：系统设置 → 通知 → 本地日程；Windows：设置 → 系统 → 通知），窗口打开时仍会显示应用内提醒。
           </p>
-          <p v-else-if="deliveryError" class="perm-hint">{{ deliveryError }}</p>
+          <p v-if="deliveryError" class="err-msg">{{ deliveryError }}</p>
 
           <label class="tray-toggle-row">
             <div class="reminder-info">
@@ -537,28 +535,16 @@ function jumpToExport(): void {
   color: var(--text-secondary);
 }
 
-.perm-badge.perm-granted {
-  background: var(--success-soft);
-  border: 1px solid var(--success-border);
-  color: var(--success);
-}
-
-.perm-badge.perm-denied {
-  background: var(--danger-soft);
-  border: 1px solid var(--danger-border);
-  color: var(--danger);
-}
-
-.perm-badge.perm-prompt {
-  background: var(--warning-soft);
-  border: 1px solid var(--warning-border);
-  color: var(--warning);
+.perm-badge.perm-desktop-managed {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
 }
 
 .perm-hint {
   margin: -2px 0 0;
   font-size: 11.5px;
-  color: var(--warning);
+  color: var(--text-tertiary);
   line-height: 1.45;
 }
 

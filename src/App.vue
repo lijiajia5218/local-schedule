@@ -6,7 +6,6 @@ import ExportModal from '@/components/ExportModal.vue';
 import SettingsModal from '@/components/SettingsModal.vue';
 import UndoToast from '@/components/UndoToast.vue';
 import WeekView from '@/components/WeekView.vue';
-import { checkNotificationPermission } from '@/services/notificationHelper';
 import { isTauriRuntime } from '@/services/scheduleApi';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { useUpdaterStore } from '@/stores/updaterStore';
@@ -57,7 +56,6 @@ function handleGlobalKeydown(e: KeyboardEvent): void {
 onMounted(async () => {
   store.init();
   updater.ensureCurrentVersion();
-  void checkNotificationPermission();
 
   updateCheckTimer = setTimeout(() => {
     updater.checkForUpdates({ silent: true });

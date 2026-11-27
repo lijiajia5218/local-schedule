@@ -10,6 +10,7 @@ import {
   parseTimePart,
   parseTimeRange,
   parseWeeklyFocusLine,
+  resolveEditedMemo,
 } from '@/core/timeParser';
 
 describe('parseTimePart', () => {
@@ -176,6 +177,22 @@ describe('classifyQuickLine', () => {
       reminderTime: null,
     });
     expect(parseMemoLine('- 测试 @9.5').ok).toBe(false);
+  });
+
+  it('skips saving unchanged memo edits so legacy @time text is not activated', () => {
+    const legacyLine = formatDailyMemoLine({ content: '开会@9:00', reminderTime: null });
+    expect(legacyLine).toBe('- 开会@9:00');
+    expect(resolveEditedMemo('- 开会@9:00', legacyLine)).toEqual({ action: 'unchanged' });
+    expect(resolveEditedMemo(' - 开会@9:00 ', legacyLine)).toEqual({ action: 'unchanged' });
+
+    // Only when user modifies text does it parse & activate reminder
+    expect(resolveEditedMemo('- 开会 @9:00', legacyLine)).toEqual({
+      action: 'save',
+      content: '开会',
+      reminderTime: '09:00',
+    });
+    expect(resolveEditedMemo('- ', legacyLine)).toEqual({ action: 'blank' });
+    expect(resolveEditedMemo('- 开会 @25:00', legacyLine).action).toBe('error');
   });
 });
 

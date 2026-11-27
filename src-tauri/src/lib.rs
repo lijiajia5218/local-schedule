@@ -219,6 +219,7 @@ pub fn run() {
             commands::update_data_dir,
             commands::update_app_settings,
             commands::get_notification_delivery_error,
+            commands::send_test_notification,
             commands::export_week_markdown,
             commands::export_json_backup,
             commands::restore_json_backup,

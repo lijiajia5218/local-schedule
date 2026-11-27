@@ -15,8 +15,8 @@ import {
   formatDailyMemoLine,
   formatDailyTaskLine,
   isBlankOrBarePrefix,
-  parseMemoLine,
   parseShorthandTask,
+  resolveEditedMemo,
 } from '@/core/timeParser';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import type { DailyMemo, DailyTask } from '@/types/schedule';
@@ -50,6 +50,7 @@ const newMemoError = ref('');
 const memoInlineRef = ref<HTMLInputElement | null>(null);
 
 const editingMemoId = ref<string | null>(null);
+const editMemoOriginalText = ref('');
 const editMemoText = ref('');
 const editMemoError = ref('');
 const editMemoRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
@@ -281,8 +282,10 @@ async function handleMemoInlineBlur(): Promise<void> {
 
 async function startEditMemo(memo: DailyMemo): Promise<void> {
   closeMemoInline();
+  const initialLine = formatDailyMemoLine(memo);
   editingMemoId.value = memo.id;
-  editMemoText.value = formatDailyMemoLine(memo);
+  editMemoOriginalText.value = initialLine;
+  editMemoText.value = initialLine;
   editMemoError.value = '';
   await nextTick();
   focusElAtEnd(resolveArrayRef(editMemoRef.value));
@@ -290,29 +293,33 @@ async function startEditMemo(memo: DailyMemo): Promise<void> {
 
 function cancelEditMemo(): void {
   editingMemoId.value = null;
+  editMemoOriginalText.value = '';
   editMemoText.value = '';
   editMemoError.value = '';
 }
 
 async function handleEditMemoEnter(memo: DailyMemo): Promise<void> {
   if (editingMemoId.value !== memo.id) return;
-  if (isBlankOrBarePrefix(editMemoText.value)) {
+  const decision = resolveEditedMemo(editMemoText.value, editMemoOriginalText.value);
+  if (decision.action === 'blank') {
     cancelEditMemo();
     store.requestDeleteMemo(memo);
     return;
   }
-
-  const parsed = parseMemoLine(editMemoText.value);
-  if (!parsed.ok) {
-    editMemoError.value = parsed.error;
+  if (decision.action === 'unchanged') {
+    cancelEditMemo();
+    return;
+  }
+  if (decision.action === 'error') {
+    editMemoError.value = decision.error;
     return;
   }
 
   await store.saveMemo({
     id: memo.id,
     memoDate: memo.memoDate,
-    content: parsed.content,
-    reminderTime: parsed.reminderTime,
+    content: decision.content,
+    reminderTime: decision.reminderTime,
     sortOrder: memo.sortOrder,
   });
   cancelEditMemo();
@@ -320,22 +327,21 @@ async function handleEditMemoEnter(memo: DailyMemo): Promise<void> {
 
 async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
   if (editingMemoId.value !== memo.id) return;
-  if (isBlankOrBarePrefix(editMemoText.value)) {
+  const decision = resolveEditedMemo(editMemoText.value, editMemoOriginalText.value);
+  if (decision.action === 'blank' || decision.action === 'unchanged') {
     cancelEditMemo();
     return;
   }
-
-  const parsed = parseMemoLine(editMemoText.value);
-  if (!parsed.ok) {
-    editMemoError.value = parsed.error;
+  if (decision.action === 'error') {
+    editMemoError.value = decision.error;
     return;
   }
 
   await store.saveMemo({
     id: memo.id,
     memoDate: memo.memoDate,
-    content: parsed.content,
-    reminderTime: parsed.reminderTime,
+    content: decision.content,
+    reminderTime: decision.reminderTime,
     sortOrder: memo.sortOrder,
   });
   cancelEditMemo();

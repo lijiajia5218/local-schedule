@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::core_schedule::{
     AppSettings, BackupPayload, DailyMemo, DailyTask, DayBundle, WeekBundle, WeeklyFocus,
@@ -148,6 +149,16 @@ pub fn get_notification_delivery_error(
     state: State<'_, NotificationDeliveryState>,
 ) -> Option<String> {
     state.last_error.lock().ok().and_then(|guard| guard.clone())
+}
+
+#[tauri::command]
+pub fn send_test_notification(app: AppHandle) -> Result<(), String> {
+    app.notification()
+        .builder()
+        .title("本地日程 · 测试通知")
+        .body("如果您能看到这条系统横幅，说明桌面提醒通知已开启并工作正常。")
+        .show()
+        .map_err(|e| format!("触发测试通知失败: {}", e))
 }
 
 #[tauri::command]

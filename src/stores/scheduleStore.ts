@@ -15,7 +15,6 @@ import {
   type UpsertMemoInput,
   type UpsertTaskInput,
 } from '@/services/scheduleApi';
-import { requestNotificationPermission } from '@/services/notificationHelper';
 import type {
   AppSettings,
   BackupPayload,
@@ -81,8 +80,6 @@ export const useScheduleStore = defineStore('schedule', () => {
     reminderLeadMinutes: 10,
     closeToTray: true,
   });
-
-  let promptedNotificationOnce = false;
 
   const loading = ref(false);
   const pendingDeletes = ref<PendingDeleteItem[]>([]);
@@ -456,15 +453,6 @@ export const useScheduleStore = defineStore('schedule', () => {
       }
     } else {
       await loadWeek(weekStart);
-    }
-
-    if (saved.reminderTime && !promptedNotificationOnce) {
-      promptedNotificationOnce = true;
-      void requestNotificationPermission().then((perm) => {
-        if (perm === 'denied') {
-          pushToast('系统通知权限被拒绝，可在「设置」中查看开启方式', 'info');
-        }
-      });
     }
 
     return saved;
