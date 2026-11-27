@@ -60,6 +60,7 @@ describe('generateWeekMarkdown', () => {
           id: 'm1',
           memoDate: '2026-11-23',
           content: '记录备忘信息',
+          reminderTime: '09:30',
           sortOrder: 0,
           createdAt: '2026-11-23T00:00:00Z',
           updatedAt: '2026-11-23T00:00:00Z',
@@ -73,7 +74,7 @@ describe('generateWeekMarkdown', () => {
     expect(md).toContain('- [x] 季度规划同步会（下周初）  待排期');
     expect(md).toContain('## 11-23 周一');
     expect(md).toContain('- [x] 09:00-10:00 周会');
-    expect(md).toContain('  - 记录备忘信息');
+    expect(md).toContain('  - 记录备忘信息 @09:30');
     expect(md).toContain('## 11-28 周六');
     expect(md).toContain('- [ ] 10:00-11:30 周末阅读');
     expect(md).toContain('## 11-29 周日');

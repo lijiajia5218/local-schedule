@@ -278,6 +278,7 @@ function buildSeedData(): LocalDbSchema {
         id: createUuid(),
         memoDate: prevSat,
         content: '上周复盘：周六周末列需与工作日同等支持录入',
+        reminderTime: null,
         sortOrder: 0,
         createdAt: now,
         updatedAt: now,
@@ -286,6 +287,7 @@ function buildSeedData(): LocalDbSchema {
         id: createUuid(),
         memoDate: monday,
         content: '七日网格结构已核对，确认支持完整周一至周日',
+        reminderTime: null,
         sortOrder: 0,
         createdAt: now,
         updatedAt: now,
@@ -293,7 +295,8 @@ function buildSeedData(): LocalDbSchema {
       {
         id: createUuid(),
         memoDate: tue,
-        content: '点击空白处输入「【】9-10｜任务」或「- 备忘」',
+        content: '点击空白处输入「【】9-10｜任务」或「- 备忘 @9:00」',
+        reminderTime: null,
         sortOrder: 0,
         createdAt: now,
         updatedAt: now,
@@ -302,6 +305,7 @@ function buildSeedData(): LocalDbSchema {
         id: createUuid(),
         memoDate: sat,
         content: '周末条目与工作日同等可勾选、编辑和导出',
+        reminderTime: null,
         sortOrder: 0,
         createdAt: now,
         updatedAt: now,
@@ -327,10 +331,16 @@ function readLocalDb(): LocalDbSchema {
       ...t,
       sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : idx,
     }));
+    const rawMemos = Array.isArray(parsed.dailyMemo) ? parsed.dailyMemo : [];
+    const normalizedMemos = rawMemos.map((m, idx) => ({
+      ...m,
+      reminderTime: typeof m.reminderTime === 'string' && m.reminderTime ? m.reminderTime : null,
+      sortOrder: typeof m.sortOrder === 'number' ? m.sortOrder : idx,
+    }));
     return {
       weeklyFocus: Array.isArray(parsed.weeklyFocus) ? parsed.weeklyFocus : [],
       dailyTask: normalizedTasks,
-      dailyMemo: Array.isArray(parsed.dailyMemo) ? parsed.dailyMemo : [],
+      dailyMemo: normalizedMemos,
     };
   } catch {
     const seed = buildSeedData();
@@ -345,36 +355,40 @@ function writeLocalDb(db: LocalDbSchema): void {
   }
 }
 
+function defaultLocalSettings(dataDir = '~/Documents/本地日程'): AppSettings {
+  return {
+    dataDir,
+    dbPath: `${dataDir}/data.sqlite`,
+    exportsDir: `${dataDir}/exports`,
+    schemaVersion: 3,
+    reminderLeadMinutes: 10,
+    closeToTray: true,
+  };
+}
+
 function readLocalSettings(): AppSettings {
-  const defaultDir = '~/Documents/本地日程';
+  const initial = defaultLocalSettings();
   if (typeof localStorage === 'undefined') {
-    return {
-      dataDir: defaultDir,
-      dbPath: `${defaultDir}/data.sqlite`,
-      exportsDir: `${defaultDir}/exports`,
-      schemaVersion: 1,
-    };
+    return initial;
   }
   const raw = localStorage.getItem(SETTINGS_KEY);
   if (!raw) {
-    const initial: AppSettings = {
-      dataDir: defaultDir,
-      dbPath: `${defaultDir}/data.sqlite`,
-      exportsDir: `${defaultDir}/exports`,
-      schemaVersion: 1,
-    };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(initial));
     return initial;
   }
   try {
-    return JSON.parse(raw) as AppSettings;
-  } catch {
+    const parsed = JSON.parse(raw) as Partial<AppSettings>;
     return {
-      dataDir: defaultDir,
-      dbPath: `${defaultDir}/data.sqlite`,
-      exportsDir: `${defaultDir}/exports`,
-      schemaVersion: 1,
+      dataDir: parsed.dataDir ?? initial.dataDir,
+      dbPath: parsed.dbPath ?? initial.dbPath,
+      exportsDir: parsed.exportsDir ?? initial.exportsDir,
+      schemaVersion: typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : 3,
+      reminderLeadMinutes:
+        typeof parsed.reminderLeadMinutes === 'number' ? parsed.reminderLeadMinutes : 10,
+      closeToTray: typeof parsed.closeToTray === 'boolean' ? parsed.closeToTray : true,
     };
+  } catch {
+    return initial;
   }
 }
 
@@ -402,6 +416,7 @@ export interface UpsertMemoInput {
   id?: string;
   memoDate: string;
   content: string;
+  reminderTime?: string | null;
   sortOrder?: number;
 }
 
@@ -643,12 +658,20 @@ export const scheduleApi = {
         id: input.id ?? null,
         memoDate: input.memoDate,
         content: input.content,
+        reminderTime: input.reminderTime ?? null,
         sortOrder: input.sortOrder ?? null,
       });
     }
 
     const content = input.content.trim();
     if (!content) throw new Error('备忘内容不能为空');
+
+    let reminderTime: string | null = null;
+    if (input.reminderTime && input.reminderTime.trim()) {
+      const rt = parseTimePart(input.reminderTime.trim());
+      if (!rt.ok) throw new Error(rt.error);
+      reminderTime = rt.normalized;
+    }
 
     const db = readLocalDb();
     const now = new Date().toISOString();
@@ -659,6 +682,7 @@ export const scheduleApi = {
         ...db.dailyMemo[existingIdx],
         memoDate: input.memoDate,
         content,
+        reminderTime,
         sortOrder: input.sortOrder ?? db.dailyMemo[existingIdx].sortOrder,
         updatedAt: now,
       };
@@ -675,6 +699,7 @@ export const scheduleApi = {
       id: input.id ?? createUuid(),
       memoDate: input.memoDate,
       content,
+      reminderTime,
       sortOrder: input.sortOrder ?? maxOrder + 1,
       createdAt: now,
       updatedAt: now,
@@ -706,16 +731,53 @@ export const scheduleApi = {
     }
     const trimmed = newDir.trim().replace(/\/+$/, '');
     if (!trimmed) throw new Error('数据目录路径不能为空');
+    const prev = readLocalSettings();
     const next: AppSettings = {
+      ...prev,
       dataDir: trimmed,
       dbPath: `${trimmed}/data.sqlite`,
       exportsDir: `${trimmed}/exports`,
-      schemaVersion: 1,
     };
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
     }
     return next;
+  },
+
+  async updateAppSettings(
+    reminderLeadMinutes: number,
+    closeToTray: boolean
+  ): Promise<AppSettings> {
+    if (
+      !Number.isInteger(reminderLeadMinutes) ||
+      reminderLeadMinutes < 0 ||
+      reminderLeadMinutes > 1440
+    ) {
+      throw new Error('提前提醒时间需在 0 至 1440 分钟之间');
+    }
+    if (isTauriRuntime()) {
+      return invoke<AppSettings>('update_app_settings', {
+        reminderLeadMinutes,
+        closeToTray,
+      });
+    }
+    const prev = readLocalSettings();
+    const next: AppSettings = {
+      ...prev,
+      reminderLeadMinutes,
+      closeToTray,
+    };
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    }
+    return next;
+  },
+
+  async getNotificationDeliveryError(): Promise<string | null> {
+    if (isTauriRuntime()) {
+      return invoke<string | null>('get_notification_delivery_error');
+    }
+    return null;
   },
 
   async exportWeekMarkdown(weekStart: string): Promise<{ path?: string; content: string }> {

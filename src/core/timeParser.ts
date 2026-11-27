@@ -1,6 +1,7 @@
 import type {
   DailyMemo,
   DailyTask,
+  ParseMemoResult,
   ParseShorthandResult,
   ParseTimeResult,
   ParseWeeklyFocusResult,
@@ -13,7 +14,7 @@ type SingleTimeResult =
 
 export type QuickLineResult =
   | { kind: 'empty' }
-  | { kind: 'memo'; content: string }
+  | { kind: 'memo'; content: string; reminderTime: string | null }
   | { kind: 'task'; parsed: ParseShorthandResult }
   | { kind: 'invalid'; error: string; raw: string };
 
@@ -176,9 +177,76 @@ export function parseShorthandTask(raw: string): ParseShorthandResult {
   };
 }
 
+const LOOKS_LIKE_TIME_TOKEN_REGEX = /^\d{1,2}(?:[:：.。]\d*)?$/;
+
+/**
+ * Parses a memo line (`- 开会@9:00`, `- 开会 @14.30`, or `开会@9` after `- ` prefix removal).
+ * Extracts an optional `@<time>` reminder while preserving `@邮箱` or `@人名` as plain memo text.
+ */
+export function parseMemoLine(raw: string): ParseMemoResult {
+  const withoutPrefix = raw.trim().replace(MEMO_PREFIX_REGEX, '').trim();
+  if (!withoutPrefix) {
+    return {
+      ok: false,
+      error: '备忘内容不能为空，格式：- 备忘内容',
+      raw,
+    };
+  }
+
+  const atMatches = Array.from(withoutPrefix.matchAll(/@([^\s@]+)/g));
+  let reminderTime: string | null = null;
+  let cleaned = withoutPrefix;
+
+  for (let i = atMatches.length - 1; i >= 0; i -= 1) {
+    const match = atMatches[i];
+    const token = match[1];
+    const startIdx = match.index ?? 0;
+    const endIdx = startIdx + match[0].length;
+    const isPrecededBySpaceOrStart = startIdx === 0 || /\s/.test(withoutPrefix[startIdx - 1]);
+    const isAtEnd = endIdx === withoutPrefix.length;
+
+    if (!isPrecededBySpaceOrStart && !isAtEnd) {
+      continue;
+    }
+
+    if (!LOOKS_LIKE_TIME_TOKEN_REGEX.test(token)) {
+      continue;
+    }
+
+    const parsedTime = parseTimePart(token);
+    if (!parsedTime.ok) {
+      return {
+        ok: false,
+        error: `备忘提醒时间格式无效：${parsedTime.error}`,
+        raw,
+      };
+    }
+
+    reminderTime = parsedTime.normalized;
+    cleaned = `${withoutPrefix.slice(0, startIdx)} ${withoutPrefix.slice(endIdx)}`
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    break;
+  }
+
+  if (!cleaned) {
+    return {
+      ok: false,
+      error: '备忘内容不能为空，请在 @提醒时间 前补充事项名称',
+      raw,
+    };
+  }
+
+  return {
+    ok: true,
+    content: cleaned,
+    reminderTime,
+  };
+}
+
 /**
  * Strict document-line classifier inside a day cell (disallows bare plain text):
- * - Starts with `-` / `－` -> memo (must be non-empty after prefix)
+ * - Starts with `-` / `－` -> memo (extracting optional `@time` reminder)
  * - Starts with todo prefix (`【】`/`【x】`/`[]` etc.) or contains `|`/`｜` -> task
  * - Otherwise -> invalid (plain text rejected)
  */
@@ -189,15 +257,19 @@ export function classifyQuickLine(raw: string): QuickLineResult {
 
   const memoMatch = raw.match(MEMO_PREFIX_REGEX);
   if (memoMatch) {
-    const content = raw.slice(memoMatch[0].length).trim();
-    if (!content) {
+    const parsedMemo = parseMemoLine(raw);
+    if (!parsedMemo.ok) {
       return {
         kind: 'invalid',
-        error: '备忘内容不能为空，格式：- 备忘内容',
+        error: parsedMemo.error,
         raw,
       };
     }
-    return { kind: 'memo', content };
+    return {
+      kind: 'memo',
+      content: parsedMemo.content,
+      reminderTime: parsedMemo.reminderTime,
+    };
   }
 
   const prefix = extractTodoPrefix(raw);
@@ -301,8 +373,10 @@ export function formatDailyTaskLine(
   return `${prefix}${task.startTime}-${task.endTime}｜${task.title}`;
 }
 
-export function formatDailyMemoLine(memo: Pick<DailyMemo, 'content'>): string {
-  return `- ${memo.content}`;
+export function formatDailyMemoLine(
+  memo: Pick<DailyMemo, 'content'> & { reminderTime?: string | null }
+): string {
+  return memo.reminderTime ? `- ${memo.content} @${memo.reminderTime}` : `- ${memo.content}`;
 }
 
 export function formatCompactRange(startTime: string, endTime: string): string {

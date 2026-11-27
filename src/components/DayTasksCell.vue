@@ -90,6 +90,7 @@ async function commitQuickInput(keepOpen: boolean): Promise<void> {
     await store.saveMemo({
       memoDate: props.day.date,
       content: res.content,
+      reminderTime: res.reminderTime,
     });
   } else {
     if (!res.parsed.ok) {

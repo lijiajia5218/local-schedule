@@ -256,7 +256,7 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
         </li>
       </ul>
 
-      <div v-if="isAdding" class="focus-add-wrap" @click.stop>
+      <div v-if="isAdding" class="focus-add-wrap" :class="{ 'has-items': items.length > 0 }" @click.stop>
         <div class="focus-line-box">
           <input
             ref="addLineInput"
@@ -296,8 +296,10 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding-top: 4px;
+  min-height: 25px;
+  padding-top: 0;
   font-size: 11.5px;
+  line-height: 1.4;
   font-weight: 600;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -429,16 +431,26 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
 }
 
 .focus-ghost-line {
-  padding: 1px 6px;
-  font-size: 11px;
+  display: flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 0 6px;
+  font-size: 11.5px;
+  line-height: 1.4;
   color: var(--text-placeholder);
   opacity: 0;
   transition: opacity 0.14s ease, color 0.14s ease;
   user-select: none;
 }
 
+.focus-ghost-line:not(.is-empty) {
+  padding-left: 27px;
+  min-height: 22px;
+  font-size: 11px;
+}
+
 .focus-ghost-line.is-empty {
-  opacity: 0.72;
+  opacity: 0.78;
 }
 
 .focus-strip:hover .focus-ghost-line {
@@ -449,6 +461,10 @@ async function handleEditBlur(item: WeeklyFocus): Promise<void> {
 .focus-add-wrap {
   width: 100%;
   padding-top: 2px;
+}
+
+.focus-add-wrap.has-items {
+  padding-left: 19px;
 }
 
 .focus-line-box {

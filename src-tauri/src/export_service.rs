@@ -78,7 +78,12 @@ pub fn render_week_markdown(week: &WeekBundle) -> Result<String, String> {
             ));
         }
         for memo in day_memos {
-            lines.push(format!("  - {}", memo.content));
+            let reminder = memo
+                .reminder_time
+                .as_ref()
+                .map(|t| format!(" @{}", t))
+                .unwrap_or_default();
+            lines.push(format!("  - {}{}", memo.content, reminder));
         }
     }
 

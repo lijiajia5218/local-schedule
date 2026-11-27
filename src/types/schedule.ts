@@ -28,6 +28,7 @@ export interface DailyMemo {
   id: string;
   memoDate: string;
   content: string;
+  reminderTime: string | null;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -52,6 +53,8 @@ export interface AppSettings {
   dbPath: string;
   exportsDir: string;
   schemaVersion: number;
+  reminderLeadMinutes: number;
+  closeToTray: boolean;
 }
 
 export interface BackupPayload {
@@ -82,6 +85,18 @@ export type ParseShorthandResult =
       endTime: string;
       title: string;
       isDone: boolean;
+    }
+  | {
+      ok: false;
+      error: string;
+      raw: string;
+    };
+
+export type ParseMemoResult =
+  | {
+      ok: true;
+      content: string;
+      reminderTime: string | null;
     }
   | {
       ok: false;

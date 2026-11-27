@@ -51,7 +51,8 @@ export function generateWeekMarkdown(week: WeekBundle): string {
       lines.push(`- [${mark}] ${task.startTime}-${task.endTime} ${task.title}`);
     }
     for (const memo of dayMemos) {
-      lines.push(`  - ${memo.content}`);
+      const reminder = memo.reminderTime ? ` @${memo.reminderTime}` : '';
+      lines.push(`  - ${memo.content}${reminder}`);
     }
   }
 

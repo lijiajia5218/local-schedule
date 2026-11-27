@@ -10,6 +10,18 @@ use crate::export_service::{write_json_backup, write_week_markdown};
 
 pub type StoreState<'a> = State<'a, Mutex<DataStore>>;
 
+pub struct NotificationDeliveryState {
+    pub last_error: Mutex<Option<String>>,
+}
+
+impl Default for NotificationDeliveryState {
+    fn default() -> Self {
+        Self {
+            last_error: Mutex::new(None),
+        }
+    }
+}
+
 #[tauri::command]
 pub fn get_week(state: StoreState<'_>, date: String) -> Result<WeekBundle, String> {
     let store = state.lock().map_err(|_| "获取数据库锁失败".to_string())?;
@@ -96,10 +108,11 @@ pub fn upsert_memo(
     id: Option<String>,
     memo_date: String,
     content: String,
+    reminder_time: Option<String>,
     sort_order: Option<i64>,
 ) -> Result<DailyMemo, String> {
     let store = state.lock().map_err(|_| "获取数据库锁失败".to_string())?;
-    store.upsert_memo(id, memo_date, content, sort_order)
+    store.upsert_memo(id, memo_date, content, reminder_time, sort_order)
 }
 
 #[tauri::command]
@@ -118,6 +131,23 @@ pub fn get_settings(state: StoreState<'_>) -> Result<AppSettings, String> {
 pub fn update_data_dir(state: StoreState<'_>, new_dir: String) -> Result<AppSettings, String> {
     let mut store = state.lock().map_err(|_| "获取数据库锁失败".to_string())?;
     store.update_data_dir(&new_dir)
+}
+
+#[tauri::command]
+pub fn update_app_settings(
+    state: StoreState<'_>,
+    reminder_lead_minutes: i64,
+    close_to_tray: bool,
+) -> Result<AppSettings, String> {
+    let store = state.lock().map_err(|_| "获取数据库锁失败".to_string())?;
+    store.update_app_settings(reminder_lead_minutes, close_to_tray)
+}
+
+#[tauri::command]
+pub fn get_notification_delivery_error(
+    state: State<'_, NotificationDeliveryState>,
+) -> Option<String> {
+    state.last_error.lock().ok().and_then(|guard| guard.clone())
 }
 
 #[tauri::command]

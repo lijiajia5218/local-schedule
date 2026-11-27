@@ -15,6 +15,7 @@ import {
   type UpsertMemoInput,
   type UpsertTaskInput,
 } from '@/services/scheduleApi';
+import { requestNotificationPermission } from '@/services/notificationHelper';
 import type {
   AppSettings,
   BackupPayload,
@@ -76,8 +77,12 @@ export const useScheduleStore = defineStore('schedule', () => {
     dataDir: '~/Documents/本地日程',
     dbPath: '~/Documents/本地日程/data.sqlite',
     exportsDir: '~/Documents/本地日程/exports',
-    schemaVersion: 1,
+    schemaVersion: 3,
+    reminderLeadMinutes: 10,
+    closeToTray: true,
   });
+
+  let promptedNotificationOnce = false;
 
   const loading = ref(false);
   const pendingDeletes = ref<PendingDeleteItem[]>([]);
@@ -452,6 +457,16 @@ export const useScheduleStore = defineStore('schedule', () => {
     } else {
       await loadWeek(weekStart);
     }
+
+    if (saved.reminderTime && !promptedNotificationOnce) {
+      promptedNotificationOnce = true;
+      void requestNotificationPermission().then((perm) => {
+        if (perm === 'denied') {
+          pushToast('系统通知权限被拒绝，可在「设置」中查看开启方式', 'info');
+        }
+      });
+    }
+
     return saved;
   }
 
@@ -567,6 +582,16 @@ export const useScheduleStore = defineStore('schedule', () => {
     return updated;
   }
 
+  async function updateAppSettings(
+    reminderLeadMinutes: number,
+    closeToTray: boolean
+  ): Promise<AppSettings> {
+    const updated = await scheduleApi.updateAppSettings(reminderLeadMinutes, closeToTray);
+    settings.value = updated;
+    pushToast('已更新提醒与托盘设置', 'success');
+    return updated;
+  }
+
   async function exportCurrentWeekMarkdown(weekStart = activeWeekStart.value): Promise<{
     path?: string;
     content: string;
@@ -646,6 +671,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     reorderMemos,
     undoDelete,
     updateDataDir,
+    updateAppSettings,
     exportCurrentWeekMarkdown,
     exportJsonBackup,
     restoreJsonBackup,
