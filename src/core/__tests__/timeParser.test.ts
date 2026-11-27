@@ -5,10 +5,12 @@ import {
   formatDailyTaskLine,
   formatWeeklyFocusLine,
   isBlankOrBarePrefix,
+  parseMemoLine,
   parseShorthandTask,
   parseTimePart,
   parseTimeRange,
   parseWeeklyFocusLine,
+  resolveEditedMemo,
 } from '@/core/timeParser';
 
 describe('parseTimePart', () => {
@@ -120,16 +122,35 @@ describe('parseShorthandTask', () => {
 });
 
 describe('classifyQuickLine', () => {
-  it('recognizes 【】 todo and - memo, and rejects bare plain text', () => {
+  it('recognizes 【】 todo and - memo (including optional @time reminder), and rejects bare plain text', () => {
     expect(classifyQuickLine('   ')).toEqual({ kind: 'empty' });
     expect(classifyQuickLine('- 会后同步纪要')).toEqual({
       kind: 'memo',
       content: '会后同步纪要',
+      reminderTime: null,
     });
     expect(classifyQuickLine('－ 全角横杠备忘')).toEqual({
       kind: 'memo',
       content: '全角横杠备忘',
+      reminderTime: null,
     });
+    expect(classifyQuickLine('- 开会@9:00')).toEqual({
+      kind: 'memo',
+      content: '开会',
+      reminderTime: '09:00',
+    });
+    expect(classifyQuickLine('- 下午评审 @14.30 带材料')).toEqual({
+      kind: 'memo',
+      content: '下午评审 带材料',
+      reminderTime: '14:30',
+    });
+    expect(classifyQuickLine('- 联系@张三 并抄送 a@b.com')).toEqual({
+      kind: 'memo',
+      content: '联系@张三 并抄送 a@b.com',
+      reminderTime: null,
+    });
+    expect(classifyQuickLine('- 开会 @25:00').kind).toBe('invalid');
+    expect(classifyQuickLine('- @9:00').kind).toBe('invalid');
     expect(classifyQuickLine('-   ').kind).toBe('invalid');
     expect(classifyQuickLine('这是一句纯文本').kind).toBe('invalid');
     expect(classifyQuickLine('【】16-17｜测试全角分隔符')).toEqual({
@@ -142,6 +163,36 @@ describe('classifyQuickLine', () => {
         isDone: false,
       },
     });
+  });
+
+  it('parses memo lines directly and preserves non-time @tokens', () => {
+    expect(parseMemoLine('- 晨会@9')).toEqual({
+      ok: true,
+      content: '晨会',
+      reminderTime: '09:00',
+    });
+    expect(parseMemoLine('对接@王五')).toEqual({
+      ok: true,
+      content: '对接@王五',
+      reminderTime: null,
+    });
+    expect(parseMemoLine('- 测试 @9.5').ok).toBe(false);
+  });
+
+  it('skips saving unchanged memo edits so legacy @time text is not activated', () => {
+    const legacyLine = formatDailyMemoLine({ content: '开会@9:00', reminderTime: null });
+    expect(legacyLine).toBe('- 开会@9:00');
+    expect(resolveEditedMemo('- 开会@9:00', legacyLine)).toEqual({ action: 'unchanged' });
+    expect(resolveEditedMemo(' - 开会@9:00 ', legacyLine)).toEqual({ action: 'unchanged' });
+
+    // Only when user modifies text does it parse & activate reminder
+    expect(resolveEditedMemo('- 开会 @9:00', legacyLine)).toEqual({
+      action: 'save',
+      content: '开会',
+      reminderTime: '09:00',
+    });
+    expect(resolveEditedMemo('- ', legacyLine)).toEqual({ action: 'blank' });
+    expect(resolveEditedMemo('- 开会 @25:00', legacyLine).action).toBe('error');
   });
 });
 
@@ -225,6 +276,11 @@ describe('isBlankOrBarePrefix & daily formatters', () => {
       })
     ).toBe('【x】14:00-15:00｜周会');
 
-    expect(formatDailyMemoLine({ content: '记得带会议纪要' })).toBe('- 记得带会议纪要');
+    expect(formatDailyMemoLine({ content: '记得带会议纪要', reminderTime: null })).toBe(
+      '- 记得带会议纪要'
+    );
+    expect(formatDailyMemoLine({ content: '开会', reminderTime: '09:00' })).toBe(
+      '- 开会 @09:00'
+    );
   });
 });

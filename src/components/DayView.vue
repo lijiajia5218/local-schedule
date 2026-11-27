@@ -2,6 +2,7 @@
 import { computed, nextTick, ref } from 'vue';
 import {
   ArrowLeft,
+  Bell,
   Check,
   Clock,
   StickyNote,
@@ -15,6 +16,7 @@ import {
   formatDailyTaskLine,
   isBlankOrBarePrefix,
   parseShorthandTask,
+  resolveEditedMemo,
 } from '@/core/timeParser';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import type { DailyMemo, DailyTask } from '@/types/schedule';
@@ -48,6 +50,7 @@ const newMemoError = ref('');
 const memoInlineRef = ref<HTMLInputElement | null>(null);
 
 const editingMemoId = ref<string | null>(null);
+const editMemoOriginalText = ref('');
 const editMemoText = ref('');
 const editMemoError = ref('');
 const editMemoRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
@@ -238,6 +241,7 @@ async function commitNewMemo(keepOpen: boolean): Promise<void> {
     await store.saveMemo({
       memoDate: store.selectedDate,
       content: res.content,
+      reminderTime: res.reminderTime,
     });
   } else if (res.kind === 'task' && res.parsed.ok) {
     await store.saveTask({
@@ -278,8 +282,10 @@ async function handleMemoInlineBlur(): Promise<void> {
 
 async function startEditMemo(memo: DailyMemo): Promise<void> {
   closeMemoInline();
+  const initialLine = formatDailyMemoLine(memo);
   editingMemoId.value = memo.id;
-  editMemoText.value = formatDailyMemoLine(memo);
+  editMemoOriginalText.value = initialLine;
+  editMemoText.value = initialLine;
   editMemoError.value = '';
   await nextTick();
   focusElAtEnd(resolveArrayRef(editMemoRef.value));
@@ -287,29 +293,33 @@ async function startEditMemo(memo: DailyMemo): Promise<void> {
 
 function cancelEditMemo(): void {
   editingMemoId.value = null;
+  editMemoOriginalText.value = '';
   editMemoText.value = '';
   editMemoError.value = '';
 }
 
 async function handleEditMemoEnter(memo: DailyMemo): Promise<void> {
   if (editingMemoId.value !== memo.id) return;
-  if (isBlankOrBarePrefix(editMemoText.value)) {
+  const decision = resolveEditedMemo(editMemoText.value, editMemoOriginalText.value);
+  if (decision.action === 'blank') {
     cancelEditMemo();
     store.requestDeleteMemo(memo);
     return;
   }
-
-  const content = editMemoText.value.trim().replace(/^[-－]\s*/, '').trim();
-  if (!content) {
+  if (decision.action === 'unchanged') {
     cancelEditMemo();
-    store.requestDeleteMemo(memo);
+    return;
+  }
+  if (decision.action === 'error') {
+    editMemoError.value = decision.error;
     return;
   }
 
   await store.saveMemo({
     id: memo.id,
     memoDate: memo.memoDate,
-    content,
+    content: decision.content,
+    reminderTime: decision.reminderTime,
     sortOrder: memo.sortOrder,
   });
   cancelEditMemo();
@@ -317,21 +327,21 @@ async function handleEditMemoEnter(memo: DailyMemo): Promise<void> {
 
 async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
   if (editingMemoId.value !== memo.id) return;
-  if (isBlankOrBarePrefix(editMemoText.value)) {
+  const decision = resolveEditedMemo(editMemoText.value, editMemoOriginalText.value);
+  if (decision.action === 'blank' || decision.action === 'unchanged') {
     cancelEditMemo();
     return;
   }
-
-  const content = editMemoText.value.trim().replace(/^[-－]\s*/, '').trim();
-  if (!content) {
-    cancelEditMemo();
+  if (decision.action === 'error') {
+    editMemoError.value = decision.error;
     return;
   }
 
   await store.saveMemo({
     id: memo.id,
     memoDate: memo.memoDate,
-    content,
+    content: decision.content,
+    reminderTime: decision.reminderTime,
     sortOrder: memo.sortOrder,
   });
   cancelEditMemo();
@@ -522,7 +532,15 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
             <template v-else>
               <span class="bullet">•</span>
               <span class="memo-content" @dblclick.stop="startEditMemo(memo)">
-                {{ memo.content }}
+                <span>{{ memo.content }}</span>
+                <span
+                  v-if="memo.reminderTime"
+                  class="memo-reminder-badge tabular-nums"
+                  :title="`将于 ${memo.reminderTime} 前提醒`"
+                >
+                  <Bell :size="11" :stroke-width="2.1" />
+                  <span>{{ memo.reminderTime }}</span>
+                </span>
               </span>
               <div class="row-actions" @dblclick.stop>
                 <button
@@ -789,6 +807,25 @@ async function handleEditMemoBlur(memo: DailyMemo): Promise<void> {
   min-width: 0;
   font-size: 13px;
   color: var(--text-secondary);
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.memo-reminder-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  height: 20px;
+  border-radius: var(--radius-xs);
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
+  color: var(--warning);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .doc-compose {

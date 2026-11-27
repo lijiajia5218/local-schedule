@@ -117,16 +117,27 @@ describe('scheduleStore MVP flows', () => {
     expect(updatedFocus?.isDone).toBe(true);
 
     const saturday = addDays(current, 5);
-    const memo = await store.saveMemo({ memoDate: saturday, content: '周末补充记录' });
+    const memo = await store.saveMemo({
+      memoDate: saturday,
+      content: '周末补充记录',
+      reminderTime: '09:00',
+    });
+    expect(memo.reminderTime).toBe('09:00');
     await store.saveMemo({
       id: memo.id,
       memoDate: saturday,
       content: '周末补充记录（已更新）',
+      reminderTime: '10:30',
       sortOrder: memo.sortOrder,
     });
-    expect(store.memosForDate(saturday).some((m) => m.content === '周末补充记录（已更新）')).toBe(
-      true
-    );
+    const updatedMemo = store.memosForDate(saturday).find((m) => m.id === memo.id);
+    expect(updatedMemo?.content).toBe('周末补充记录（已更新）');
+    expect(updatedMemo?.reminderTime).toBe('10:30');
+
+    await store.updateAppSettings(15, false);
+    expect(store.settings.reminderLeadMinutes).toBe(15);
+    expect(store.settings.closeToTray).toBe(false);
+    await expect(store.updateAppSettings(-1, true)).rejects.toThrow();
   });
 
   it('handles 5-second undo window and commits permanent delete after expiry', async () => {

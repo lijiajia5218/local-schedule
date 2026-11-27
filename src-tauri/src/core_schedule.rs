@@ -1,4 +1,4 @@
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +36,8 @@ pub struct DailyMemo {
     pub id: String,
     pub memo_date: String,
     pub content: String,
+    #[serde(default)]
+    pub reminder_time: Option<String>,
     pub sort_order: i64,
     pub created_at: String,
     pub updated_at: String,
@@ -66,6 +68,8 @@ pub struct AppSettings {
     pub db_path: String,
     pub exports_dir: String,
     pub schema_version: i64,
+    pub reminder_lead_minutes: i64,
+    pub close_to_tray: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +80,40 @@ pub struct BackupPayload {
     pub weekly_focus: Vec<WeeklyFocus>,
     pub daily_task: Vec<DailyTask>,
     pub daily_memo: Vec<DailyMemo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DueMemoReminder {
+    pub memo_id: String,
+    pub memo_date: String,
+    pub reminder_time: String,
+    pub content: String,
+    pub lead_minutes: i64,
+    pub fired_key: String,
+}
+
+pub fn build_fired_key(memo_date: &str, reminder_time: &str, lead_minutes: i64) -> String {
+    format!("{}|{}|{}", memo_date, reminder_time, lead_minutes)
+}
+
+/// Checks whether a scheduled memo reminder falls within `[event_dt - lead_minutes, event_dt + 60s]`.
+/// The +60s tolerance ensures `lead_minutes = 0` (on-time reminders) never miss a 15-second poll tick,
+/// while preventing historical memos older than `event_dt + 60s` from firing after wake/launch.
+pub fn is_reminder_due_at(
+    memo_date: &str,
+    reminder_time: &str,
+    lead_minutes: i64,
+    now_local: NaiveDateTime,
+) -> Result<bool, String> {
+    let date = NaiveDate::parse_from_str(memo_date, "%Y-%m-%d")
+        .map_err(|_| format!("无效备忘日期: {}", memo_date))?;
+    let time = NaiveTime::parse_from_str(reminder_time, "%H:%M")
+        .map_err(|_| format!("无效提醒时间: {}", reminder_time))?;
+    let event_dt = date.and_time(time);
+    let trigger_dt = event_dt - chrono::Duration::minutes(lead_minutes);
+    let expiry_dt = event_dt + chrono::Duration::seconds(60);
+    Ok(now_local >= trigger_dt && now_local <= expiry_dt)
 }
 
 /// Parses a single time token in `H`, `HH`, `H:MM`, `HH:MM`, or `H.MM`/`HH.MM` format into normalized `HH:MM`.
@@ -208,7 +246,6 @@ pub fn parse_weekly_focus_line(raw: &str) -> Result<ParsedWeeklyFocus, String> {
     for sep in [" - ", " － ", " //", "//"] {
         if let Some(idx) = rest.find(sep) {
             let before = &rest[..idx];
-            // Require whitespace before separator for `-` / `－` or `//`
             if sep.starts_with(' ') || before.chars().last().map(|c| c.is_whitespace()).unwrap_or(true) {
                 main_part = before.to_string();
                 let note = rest[idx + sep.len()..].trim().to_string();
@@ -353,5 +390,23 @@ mod tests {
         assert_eq!(week_start_of("2026-11-23").unwrap(), "2026-11-23");
         assert_eq!(week_start_of("2026-11-25").unwrap(), "2026-11-23");
         assert_eq!(week_start_of("2026-11-29").unwrap(), "2026-11-23");
+    }
+
+    #[test]
+    fn test_reminder_window_ontime_cross_midnight_and_expiry() {
+        let dt = |s: &str| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").unwrap();
+
+        // N = 0 (on-time) includes 60s tolerance window so 15s polling at 09:00:07 fires cleanly
+        assert!(!is_reminder_due_at("2026-11-27", "09:00", 0, dt("2026-11-27 08:59:59")).unwrap());
+        assert!(is_reminder_due_at("2026-11-27", "09:00", 0, dt("2026-11-27 09:00:07")).unwrap());
+        assert!(is_reminder_due_at("2026-11-27", "09:00", 0, dt("2026-11-27 09:01:00")).unwrap());
+        assert!(!is_reminder_due_at("2026-11-27", "09:00", 0, dt("2026-11-27 09:01:01")).unwrap());
+
+        // Cross-midnight: tomorrow 00:05 with lead 10 min triggers at today 23:55
+        assert!(is_reminder_due_at("2026-11-28", "00:05", 10, dt("2026-11-27 23:55:04")).unwrap());
+        assert!(!is_reminder_due_at("2026-11-28", "00:05", 10, dt("2026-11-27 23:54:59")).unwrap());
+
+        // 1440 min (24h) ahead
+        assert!(is_reminder_due_at("2026-11-28", "10:00", 1440, dt("2026-11-27 10:00:08")).unwrap());
     }
 }

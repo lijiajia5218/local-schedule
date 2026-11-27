@@ -217,8 +217,8 @@ onUnmounted(() => {
             </div>
             <div class="pop-item">
               <span class="pop-tag memo">备忘</span>
-              <code>- 会议纪要</code>
-              <span class="pop-extra">需以 - 开头</span>
+              <code>- 开会 @9:00</code>
+              <span class="pop-extra">@时间可选，到点前提醒</span>
             </div>
             <div class="pop-item">
               <span class="pop-tag focus">重点</span>
